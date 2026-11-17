@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Generates SBOMs for one app with several generators. Every tool runs as a
 # pinned container, a checksum-pinned binary, or inside the app's own Docker
-# build, so local runs and CI
-# behave the same.
+# build, so local runs and CI behave the same.
+#
+# Security: no tool gets the Docker socket. Images are scanned from a
+# `docker save` tarball; cdxgen's image scan runs with no network.
 #
 # Usage: scripts/generate-sbom.sh <app> [out-root]
 #   <app>       directory name under apps/ (python, node, go, java, rust)
@@ -11,7 +13,8 @@
 #   STEP_TIMEOUT         seconds per tool call before it is killed (default: 600)
 #   GENERATORS           space-separated subset of: syft trivy cdxgen native
 #                        (default: all four)
-#   IMAGE                image to scan (default: poc-<app>:local, must exist)
+#   IMAGE                image to scan (default: poc-<app>:local, from
+#                        scripts/build-image.sh, which also records its digest)
 #   SBOM_SOURCE_VERSION  version recorded in the SBOM (default: git short SHA)
 #   SBOM_SUPPLIER        supplier recorded in the SBOM
 #
@@ -22,6 +25,7 @@
 #   native-source.cdx.json                 the language's own OWASP CycloneDX
 #                                          generator, run inside the Docker build
 set -euo pipefail
+export LC_ALL=C
 
 APP="${1:?usage: $0 <app> [out-root]}"
 OUT_ROOT="${2:-sbom}"
@@ -35,7 +39,9 @@ TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5
 # cdxgen standalone release binary (static, Node built in); checksum from the release's .sha256
 CDXGEN_VERSION="${CDXGEN_VERSION:-v13.8.0}"
 CDXGEN_SHA256="${CDXGEN_SHA256:-01f2a7f822449242987942ae81da7464dc9d8eed27ae36d33b0f4ddce95e5b43}"
-LIBATOMIC_SOURCE_IMAGE="rust:1-slim-bookworm@sha256:7c7d4eb4d05b7781187a327809466cfddf29753f6defdc3d19a0e291951b7a37"
+# Pinned glibc image with libatomic: runs cdxgen's image scan (sandboxed), and
+# provides libatomic.so.1 for source scans in slim app images.
+CDXGEN_RUNNER_IMAGE="rust:1-slim-bookworm@sha256:7c7d4eb4d05b7781187a327809466cfddf29753f6defdc3d19a0e291951b7a37"
 STEP_TIMEOUT="${STEP_TIMEOUT:-600}"   # seconds per tool call; a hang fails fast and names itself
 NAME="poc-$APP"
 VERSION="${SBOM_SOURCE_VERSION:-$(git rev-parse --short HEAD 2>/dev/null || echo dev)}"
@@ -62,7 +68,7 @@ step() {
   local state
   # (`|| true`: helpers defined later in the script don't exist yet for early steps)
   state="$({ declare -p APP APP_DIR OUT_ROOT OUT_ABS CACHE_ABS SRC_ABS M2_MOUNT \
-                        CDXGEN_VERSION CDXGEN_SHA256 LIBATOMIC_SOURCE_IMAGE
+                        CDXGEN_VERSION CDXGEN_SHA256 CDXGEN_RUNNER_IMAGE
              declare -f log run_tool export_stage fetch_cdxgen; } 2> /dev/null || true)"
   timeout --kill-after=30 "$STEP_TIMEOUT" \
     bash -c "$state"$'\n''"$@"' _ "$@" > "$logf" 2>&1 || rc=$?
@@ -102,17 +108,23 @@ if has_stage maven-repo; then
   M2_MOUNT=(-v "$CACHE_ABS/m2":/tmp/.m2/repository)
 fi
 
-# Run a tool container as the current user in the docker group: output files are
-# not root-owned, and tools can still read the Docker socket to find local images.
-# label=disable: needed on SELinux hosts (Fedora) for the socket and bind mounts.
+# Run a tool container as the current user (output files are not root-owned).
+# No Docker socket: images are scanned from /cache/image.tar instead.
+# label=disable: needed on SELinux hosts (Fedora) for the bind mounts.
 run_tool() {
   docker run --rm --security-opt label=disable \
-    --user "$(id -u):$(stat -c '%g' /var/run/docker.sock)" \
+    --user "$(id -u):$(id -g)" \
     --tmpfs /tmp:mode=1777,exec,size=4g -e HOME=/tmp \
-    -v /var/run/docker.sock:/var/run/docker.sock \
     -v "$SRC_ABS":/src:ro -v "$OUT_ABS":/out -v "$CACHE_ABS":/cache "${M2_MOUNT[@]}" \
     "$@"
 }
+
+# The image every image scan reads: saved once, removed on exit
+IMAGE_TAR="$CACHE_ABS/image.tar"
+trap 'rm -f "$IMAGE_TAR"' EXIT
+if [[ " $GENERATORS " =~ \ (syft|trivy|cdxgen)\  ]]; then
+  step image-save docker save -o "$IMAGE_TAR" "$IMAGE"
+fi
 
 # Build output and installed deps are not "source"; skip them in source scans.
 SKIP_DIRS=(node_modules target)
@@ -138,7 +150,7 @@ gen_syft() {
     --enrich python --enrich javascript --enrich golang \
     -o cyclonedx-json=/out/syft-source.cdx.json -o spdx-json=/out/syft-source.spdx.json
 
-  step syft-image run_tool "$SYFT_IMAGE" scan -q "docker:$IMAGE" "${common[@]}" \
+  step syft-image run_tool "$SYFT_IMAGE" scan -q docker-archive:/cache/image.tar "${common[@]}" \
     -o cyclonedx-json=/out/syft-image.cdx.json -o spdx-json=/out/syft-image.spdx.json
 }
 
@@ -160,8 +172,8 @@ gen_trivy() {
     step "trivy-source-$ext" run_tool "$TRIVY_IMAGE" -q --cache-dir /cache/trivy fs "${skip[@]}" "${src_flags[@]}" \
       --file-patterns 'pip:requirements.*\.txt' \
       --format "$format" -o "/out/trivy-source.$ext.json" /src
-    step "trivy-image-$ext" run_tool "$TRIVY_IMAGE" -q --cache-dir /cache/trivy image --image-src docker \
-      --format "$format" -o "/out/trivy-image.$ext.json" "$IMAGE"
+    step "trivy-image-$ext" run_tool "$TRIVY_IMAGE" -q --cache-dir /cache/trivy image \
+      --input /cache/image.tar --format "$format" -o "/out/trivy-image.$ext.json"
   done
 }
 
@@ -173,7 +185,8 @@ gen_trivy() {
 #   source: runs INSIDE the app's own build image (Dockerfile `base` stage), with
 #           the binary mounted in, so the real toolchain resolves dependencies;
 #           on a scratch copy of the app, because cdxgen may write lock/temp files
-#   image:  runs the binary on a `docker save` tarball of the built image
+#   image:  runs the binary on the `docker save` tarball, in a pinned container
+#           with NO network and no socket (it never needs either)
 # Licences are not fetched online (FETCH_LICENSE): slow and rate-limited, and the
 # other generators already provide licences.
 CDXGEN_BIN=""
@@ -195,7 +208,7 @@ fetch_cdxgen() {
     # build image; `cat` follows the symlink to the real file.
     if [[ ! -s "$dir/lib/libatomic.so.1" ]]; then
       mkdir -p "$dir/lib"
-      docker run --rm --entrypoint cat "$LIBATOMIC_SOURCE_IMAGE" \
+      docker run --rm --entrypoint cat "$CDXGEN_RUNNER_IMAGE" \
         /lib/x86_64-linux-gnu/libatomic.so.1 > "$dir/lib/libatomic.so.1"
     fi
   ) 9> "$dir/.lock"
@@ -230,16 +243,10 @@ gen_cdxgen() {
     -r /work "${install[@]}" --spec-version 1.6 \
     --project-name "$NAME" --project-version "$VERSION" -o /out/cdxgen-source.cdx.json
 
-  step cdxgen-save docker save -o "$CACHE_ABS/image.tar" "$IMAGE"
-  # Runs on the host, so start from an EMPTY environment (env -i): the scan must
-  # not inherit tokens or other secrets from the shell or CI runner.
-  step cdxgen-image env -i PATH=/usr/local/bin:/usr/bin:/bin HOME="$CACHE_ABS/home" \
-    CDXGEN_NO_BANNER=true FETCH_LICENSE=false \
-    CDXGEN_TEMP_DIR="$CACHE_ABS/tmp" TMPDIR="$CACHE_ABS/tmp" \
-    bash -c 'mkdir -p "$HOME" "$TMPDIR" && exec "$@"' _ \
-    "$CDXGEN_BIN" -t docker "$CACHE_ABS/image.tar" --spec-version 1.6 \
-    --project-name "$NAME" --project-version "$VERSION" -o "$OUT_ABS/cdxgen-image.cdx.json"
-  rm -rf "$CACHE_ABS/image.tar" "$CACHE_ABS/tmp"
+  step cdxgen-image run_tool --network none -e CDXGEN_NO_BANNER=true -e FETCH_LICENSE=false \
+    -v "$CDXGEN_BIN":/usr/local/bin/cdxgen:ro --entrypoint /usr/local/bin/cdxgen \
+    "$CDXGEN_RUNNER_IMAGE" -t docker /cache/image.tar --spec-version 1.6 \
+    --project-name "$NAME" --project-version "$VERSION" -o /out/cdxgen-image.cdx.json
 }
 
 # --- Native (language's own OWASP CycloneDX generator) -----------------------------
@@ -255,4 +262,5 @@ for g in $GENERATORS; do
   "gen_$g"
 done
 
+bash "$(dirname "$0")/make-views.sh" "$APP" "$OUT_ROOT"
 log "Done: $(find "$OUT_ABS" -maxdepth 1 -name '*.json' | wc -l) files in $OUT"

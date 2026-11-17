@@ -1,0 +1,2 @@
+# Must not ship (dev/test dependencies), matched by type/name, any version
+pkg:npm/nodemon

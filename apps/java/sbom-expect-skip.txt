@@ -1,0 +1,2 @@
+# <sbom file> <purl|*> <reason>: documented exceptions to sbom-expect.txt
+syft-source.cdx.json pkg:maven/org.yaml/snakeyaml@1.29 Syft lists only the direct dependencies declared in pom.xml (no transitive Maven resolution)

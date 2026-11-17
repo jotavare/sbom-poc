@@ -19,10 +19,14 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 # --- sbom stage: native OWASP generator (cyclonedx-gomod). `app` mode lists only
 #     the modules compiled into the binary (+ Go stdlib), with licences detected
 #     from module sources. The tool reads the main module's version from git, and
-#     .git is not in the build context, so a throwaway repo is created here.
+#     .git is not in the build context, so a throwaway repo is created and tagged
+#     with APP_VERSION: the SBOM then says v0.1.0 on every run, not a random
+#     pseudo-version that changes each time.
 FROM base AS sbom
+ARG APP_VERSION=0.1.0
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     git init -q && git -c user.name=sbom -c user.email=sbom@localhost commit -q --allow-empty -m sbom \
+    && git tag "v${APP_VERSION}" \
     && go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.12.0 \
       app -json -std -licenses -assert-licenses -main . -output /native-source.cdx.json
 

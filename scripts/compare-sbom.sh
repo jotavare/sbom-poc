@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Compares the CycloneDX SBOMs of every generator side by side (Markdown to stdout).
+# Compares the SBOMs of every generator side by side (Markdown to stdout).
+# CycloneDX SBOMs from Syft, Trivy, cdxgen and the native generators; for the
+# image, also BuildKit's SPDX attestation (mapped to the same shape here).
 #
 # Usage: scripts/compare-sbom.sh [app...]     (no args = every app with SBOMs)
 # Env:   SBOM_ROOT (default: sbom), MAX_DIFF_ROWS (default: 40)
 set -euo pipefail
+export LC_ALL=C
 
 ROOT="${SBOM_ROOT:-sbom}"
 GEN_ORDER=(syft trivy cdxgen native)
@@ -30,6 +33,7 @@ METRICS=(
   "with PURL|$LIBS | map(select(.purl)) | length"
   "File entries|[.components[]? | select(.type == \"file\")] | length"
   "Dependency edges|[(.dependencies // [])[] | (.dependsOn // [])[]] | length"
+  "Root linked to deps|(.metadata.component[\"bom-ref\"]) as \$r | if \$r == null then \"no\" elif ([(.dependencies // [])[] | select(.ref == \$r) | (.dependsOn // [])[]] | length) > 0 then \"yes\" else \"no\" end"
   "Supplier set|if (.metadata.component.supplier.name // .metadata.supplier.name) then \"yes\" else \"no\" end"
   "CycloneDX spec|.specVersion"
 )
@@ -64,6 +68,19 @@ packages() {
     | sort -u
 }
 
+# BuildKit's SBOM attestation is SPDX: map its packages to CycloneDX-like
+# components (purl, licence, hashes) so the same metrics and diff apply.
+spdx_as_cdx() {
+  jq '{specVersion: ("SPDX " + (.spdxVersion | ltrimstr("SPDX-"))), metadata: {},
+       components: [.packages[] | select(any(.externalRefs[]?; .referenceType == "purl")) | {
+         type: "library", "bom-ref": .SPDXID,
+         purl: ([.externalRefs[] | select(.referenceType == "purl") | .referenceLocator][0]),
+         licenses: (if (.licenseDeclared // "NOASSERTION") | test("^(NOASSERTION|NONE)$") then [] else [{expression: .licenseDeclared}] end),
+         hashes: [.checksums[]? | {alg: .algorithm, content: .checksumValue}],
+         cpe: ([.externalRefs[] | select(.referenceCategory == "SECURITY") | .referenceLocator][0])}],
+       dependencies: []}' "$1"
+}
+
 human_size() { numfmt --to=iec --suffix=B "$(stat -c%s "$1")"; }
 
 compare_target() {
@@ -72,7 +89,12 @@ compare_target() {
     local f="$ROOT/$app/$g-$target.cdx.json"
     [[ -s "$f" ]] && { gens+=("$g"); files+=("$f"); }
   done
-  (( ${#gens[@]} > 0 )) || return 0
+  local tmp; tmp=$(mktemp -d)
+  if [[ "$target" == image && -s "$ROOT/$app/buildkit-image.spdx.json" ]]; then
+    spdx_as_cdx "$ROOT/$app/buildkit-image.spdx.json" > "$tmp/buildkit.cdx.json"
+    gens+=("buildkit"); files+=("$tmp/buildkit.cdx.json")
+  fi
+  (( ${#gens[@]} > 0 )) || { rm -rf "$tmp"; return 0; }
 
   echo "## ${target^} SBOM"
   echo
@@ -89,12 +111,11 @@ compare_target() {
   done
   printf '| File size |'; for f in "${files[@]}"; do printf ' %s |' "$(human_size "$f")"; done; echo
   echo
-  (( ${#gens[@]} > 1 )) || return 0
+  (( ${#gens[@]} > 1 )) || { rm -rf "$tmp"; return 0; }
 
   # Which generator found which package (only packages not found by all)
-  local tmp; tmp=$(mktemp -d)
   for i in "${!gens[@]}"; do packages "${files[$i]}" > "$tmp/${gens[$i]}"; done
-  sort -u "$tmp"/* > "$tmp/all"
+  sort -u "${gens[@]/#/$tmp/}" > "$tmp/all"
   local rows=()
   while read -r pkg; do
     local row="| \`$pkg\` |" found=0
@@ -104,6 +125,8 @@ compare_target() {
     (( found < ${#gens[@]} )) && rows+=("$row")
   done < "$tmp/all"
   local total; total=$(wc -l < "$tmp/all")
+  [[ -f "$ROOT/$app/artifact.json" && "$target" == image ]] \
+    && echo "Image: \`$(jq -r '.image + "@" + .index_digest' "$ROOT/$app/artifact.json")\`" && echo
   echo "**Agreement:** $((total - ${#rows[@]})) of $total packages found by every generator (runtime dependencies, after normalisation)."
   echo
   if (( ${#rows[@]} > 0 )); then

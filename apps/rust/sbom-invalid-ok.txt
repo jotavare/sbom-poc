@@ -1,0 +1,2 @@
+# <sbom file> <reason>: SBOMs known to fail validation (a generator bug), reported instead of hidden
+buildkit-image.spdx.json BuildKit SBOM scanner writes only SHA256 file checksums; SPDX 2.3 requires a SHA1 checksum for every file

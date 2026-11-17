@@ -96,7 +96,7 @@ jobs:
           pattern: sbom-*
           path: artifacts
 
-      - name: Build docs/SBOM-REPORT.md
+      - name: Build sbom/SBOM-REPORT.md
         run: |
           mkdir -p sbom
           for d in artifacts/sbom-*; do
@@ -105,12 +105,12 @@ jobs:
             if [[ -d "$d/$app" ]]; then cp -r "$d/$app" sbom/; else cp -r "$d" "sbom/$app"; fi
           done
           make report
-          cat docs/SBOM-REPORT.md >> "$GITHUB_STEP_SUMMARY"
+          cat sbom/SBOM-REPORT.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload combined report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom-report
-          path: docs/SBOM-REPORT.md
+          path: sbom/SBOM-REPORT.md
           if-no-files-found: error
           retention-days: 30

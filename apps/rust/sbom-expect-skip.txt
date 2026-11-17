@@ -1,2 +1,2 @@
-# <sbom file> <reason>: SBOMs that are known NOT to contain sbom-expect.txt markers
-cdxgen-image.cdx.json cdxgen does not read cargo-auditable data from Rust binaries (only OS packages found); Syft and Trivy do
+# <sbom file> <purl|*> <reason>: documented exceptions to sbom-expect.txt
+cdxgen-image.cdx.json * cdxgen does not read cargo-auditable data from Rust binaries (only OS packages found); Syft and Trivy do

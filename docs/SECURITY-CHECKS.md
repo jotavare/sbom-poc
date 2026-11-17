@@ -6,7 +6,7 @@ Reference list of the kinds of security checks a DevSecOps pipeline can run, fro
 
 **Legend**
 - **Tools:** plain name = open source (listed first) · `(free)` = closed-source freeware · `(free tier)` = commercial with a free plan · `(paid)` = commercial only · `(unmaintained)` / `(low activity)` = OSS with little or no recent development
-- **In PoC:** ✅ done · 🔜 planned iteration · 📄 documented only (needs a commercial tool, cloud account or a human) · ⬜ not planned yet
+- **In PoC:** ✅ done · 🟡 partly done · 🔜 planned iteration · 📄 documented only (needs a commercial tool, cloud account or a human) · ⬜ not planned yet
 - **Type:** 🔍 detect (finds problems) · 🛡️ prevent (blocks or controls) · 🧾 evidence (proves something about an artifact)
 - IDs are stable (`C03`, `B01`…) so references don't break when rows are added.
 
@@ -74,17 +74,17 @@ flowchart TB
   X -.-> S6
 ```
 
-## Iteration 1 pipeline (app + SBOM)
+## Iteration 1 pipeline (apps + SBOM)
 
 ```mermaid
 flowchart LR
-  push[Push / PR to main] --> co[Checkout]
-  co --> s1[Syft: source SBOM<br/>CycloneDX + SPDX]
-  co --> bld[docker build]
-  bld --> s2[Syft: image SBOM<br/>CycloneDX + SPDX]
-  s1 --> chk[Sanity check with jq]
-  s2 --> chk
-  chk --> art[(Artifact: sbom)]
+  push[Push / PR] --> t[Tests]
+  t --> b[BuildKit build<br/>+ SBOM & provenance<br/>attestations]
+  b --> r[(local registry<br/>image digest)]
+  r --> g[Syft, Trivy, cdxgen<br/>+ native generator]
+  g --> c[check + validate]
+  c --> s[compare, licences,<br/>quality]
+  s --> a[(sbom-app artifacts<br/>+ sbom-report)]
 ```
 
 ---
@@ -105,7 +105,7 @@ flowchart LR
 | C04 | Linting / code quality *(enabler)* | Bug-prone or unidiomatic code that can turn into vulnerabilities | 🔍 | No | Ruff, Pylint, ESLint, golangci-lint, SonarQube Community Build, Codacy (free tier) | Ruff | ⬜ |
 | C05 | **SCA** | Matches third-party dependencies against vulnerability databases (CVE/GHSA/OSV). Advanced tools add *reachability* (is the vulnerable function actually called?) | 🔍 | No | OSV-Scanner, Trivy, Grype, OWASP Dependency-Check, OWASP dep-scan, pip-audit, npm audit, Dependabot alerts (free on GitHub), Safety CLI (free tier), Snyk Open Source (free tier), Mend (paid), Black Duck (paid) | Grype (on SBOM, see B02) | 🔜 |
 | C06 | Automated dependency updates | Opens PRs to bump outdated/vulnerable dependencies | 🛡️ | No | Dependabot (free on GitHub), Renovate | Dependabot | ⬜ |
-| C07 | License compliance | Checks dependency licences against a policy (e.g. no GPL/AGPL) | 🔍 | No | Trivy (license), ScanCode Toolkit, ORT, grant, FOSSA (free tier), Black Duck (paid) | Trivy | ⬜ |
+| C07 | License compliance | Checks dependency licences against a policy (e.g. no GPL/AGPL) | 🔍 | No | Trivy (license), ScanCode Toolkit, ORT, grant, FOSSA (free tier), Black Duck (paid) | grant (on normalised SBOMs) | ✅ (report only) |
 | C08 | Malicious package detection | Typosquats, malicious install scripts, hijacked packages, dependency confusion | 🔍🛡️ | No | GuardDog, vet, OpenSSF Package Analysis, OSV malicious-packages feed, Aikido Safe Chain, Socket.dev (free tier), Veracode Package Firewall (paid, ex-Phylum) | GuardDog | ⬜ |
 | C09 | IaC scanning | Static scan of Terraform, CloudFormation, K8s manifests, Helm: public buckets, open security groups, privileged pods | 🔍 | No | Checkov, KICS, Trivy config, TFLint, Kubescape, kube-linter, Snyk IaC (free tier), Wiz (paid) | Checkov | ⬜ |
 | C10 | Dockerfile linting | `:latest` tags, root user, secrets in ENV | 🔍 | No | Hadolint, Trivy config, Checkov | Hadolint | 🔜 |
@@ -118,13 +118,13 @@ flowchart LR
 
 | ID | Check | What it does / finds | Type | Running app? | Tool options | PoC tool | In PoC |
 |---|---|---|---|---|---|---|---|
-| B01 | **SBOM** generation | Inventory of every component (name, version, licence, hash, PURL). Finds nothing by itself; it's the input for other checks | 🧾 | No | Syft, Trivy, cdxgen, CycloneDX plugins, Microsoft sbom-tool, Docker Scout (free tier) | Syft + Trivy | ✅ |
+| B01 | **SBOM** generation | Inventory of every component (name, version, licence, hash, PURL). Finds nothing by itself; it's the input for other checks | 🧾 | No | Syft, Trivy, cdxgen, CycloneDX plugins, Microsoft sbom-tool, Docker Scout (free tier) | Syft, Trivy, cdxgen, native OWASP generators, BuildKit `--sbom` | ✅ |
 | B02 | SBOM vulnerability scan | SCA using the SBOM as input | 🔍 | No | Grype, Trivy, OSV-Scanner, Dependency-Track | Grype | 🔜 |
 | B03 | Container image scanning | CVEs in OS packages and app layers of an image | 🔍 | No | Trivy, Grype, Clair, Dockle (image linter), Docker Scout (free tier), Snyk Container (free tier), Cortex Cloud / ex-Prisma Cloud (paid) | Trivy (compare with Grype) | 🔜 |
 | B04 | **VEX** | Machine-readable statement per CVE: `not_affected`, `affected`, `fixed`, `under_investigation`. Issued after triage, updated after release; cuts false positives | 🧾 | No | OpenVEX/vexctl, CycloneDX VEX, Trivy/Grype VEX input | vexctl | ⬜ |
 | B05 | Artifact signing | Cryptographically signs images/binaries. Only effective when **verified** at deploy (see P01) | 🧾 | No | Cosign (Sigstore), Notation (Notary Project), GPG | Cosign keyless | 🔜 |
 | B06 | Attestation | Signed statements about an artifact (its SBOM, scan results) | 🧾 | No | cosign attest, in-toto, Witness | cosign attest | 🔜 |
-| B07 | Build provenance (SLSA Build track) | Signed record of how, where and from which source an artifact was built. Provenance alone (L1–L2) records the build; resisting a compromised build platform needs Build L3 | 🧾 | No | actions/attest (attest-build-provenance), slsa-github-generator, Tekton Chains | actions/attest | 🔜 |
+| B07 | Build provenance (SLSA Build track) | Signed record of how, where and from which source an artifact was built. Provenance alone (L1–L2) records the build; resisting a compromised build platform needs Build L3 | 🧾 | No | actions/attest (attest-build-provenance), slsa-github-generator, Tekton Chains | BuildKit `--provenance=mode=max` (unsigned); signing later | 🟡 provenance generated, not yet signed |
 
 ## 4. Test / Staging
 

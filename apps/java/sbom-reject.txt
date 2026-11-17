@@ -1,0 +1,4 @@
+# Must not ship (dev/test dependencies), matched by type/name, any version
+pkg:maven/org.springframework.boot/spring-boot-starter-test
+pkg:maven/org.junit.jupiter/junit-jupiter-api
+pkg:maven/org.mockito/mockito-core
