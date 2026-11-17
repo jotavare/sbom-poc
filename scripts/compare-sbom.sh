@@ -17,7 +17,7 @@ fi
 (( ${#APPS[@]} > 0 )) || { echo "error: no SBOMs under $ROOT/ (run make sbom first)" >&2; exit 1; }
 
 # All library components, wherever they are nested (cdxgen nests some)
-LIBS='[.. | objects | select(.type? == "library" and has("bom-ref"))]'
+LIBS='[.. | objects | select((.type? == "library" or .type? == "framework") and has("bom-ref"))]'
 
 # label|jq expression over a CycloneDX document
 METRICS=(

@@ -37,8 +37,17 @@ purls() {
     | sed -E 's/[?#].*$//' | tr '[:upper:]' '[:lower:]' | sort -u
 }
 
+# apps/<app>/sbom-expect-skip.txt: "<sbom file> <reason>" lines for SBOMs that
+# are known not to contain the markers (a documented tool limitation)
+SKIP_FILE="apps/$APP/sbom-expect-skip.txt"
+skipped() { [[ -f "$SKIP_FILE" ]] && grep -qE "^$1[[:space:]]" "$SKIP_FILE"; }
+
 for f in "$DIR"/*.cdx.json; do
-  jq -e '[.components[]? | select(.type == "library")] | length > 0' "$f" > /dev/null \
+  if skipped "$(basename "$f")"; then
+    echo "SKIP [$APP]: $(basename "$f") markers: $(grep -E "^$(basename "$f")[[:space:]]" "$SKIP_FILE" | cut -d' ' -f2-)"
+    continue
+  fi
+  jq -e '[.components[]? | select(.type == "library" or .type == "framework")] | length > 0' "$f" > /dev/null \
     || fail "$f has no libraries"
   found=$(purls "$f")
   while read -r want; do

@@ -79,7 +79,7 @@ For every app, `make sbom` runs **four generators** and writes to `sbom/<app>/`:
 |---|---|---|---|---|
 | [Syft](https://github.com/anchore/syft) | `syft-source.*` | `syft-image.*` | CycloneDX + SPDX | pinned container |
 | [Trivy](https://github.com/aquasecurity/trivy) | `trivy-source.*` | `trivy-image.*` | CycloneDX + SPDX | pinned container |
-| [cdxgen](https://github.com/cdxgen/cdxgen) (OWASP CycloneDX) | `cdxgen-source.cdx.json` | `cdxgen-image.cdx.json` | CycloneDX | source: inside the app's build image (real toolchain); image: [`tools/cdxgen`](tools/cdxgen) |
+| [cdxgen](https://github.com/cdxgen/cdxgen) (OWASP CycloneDX) | `cdxgen-source.cdx.json` | `cdxgen-image.cdx.json` | CycloneDX | release binary (checksum-pinned); source: mounted into the app's build image (real toolchain); image: on a `docker save` tarball |
 | **Native** OWASP CycloneDX generator | `native-source.cdx.json` | – | CycloneDX | inside the app's Docker build (`sbom` stage) |
 
 Native generators per language, all from the OWASP CycloneDX project:
@@ -94,7 +94,7 @@ Native generators per language, all from the OWASP CycloneDX project:
 
 Source SBOM = "what did we ask for?"; image SBOM = "what are we shipping?".
 
-> **cdxgen and older CPUs:** the official image (`ghcr.io/cdxgen/cdxgen`) is ~16.6 GB and needs an x86-64-v3 (AVX2) CPU ("Fatal glibc error: CPU does not support x86-64-v3"). [`tools/cdxgen`](tools/cdxgen/Dockerfile) packages the npm release (`@cdxgen/cdxgen`, ~1 GB) instead, which runs anywhere Node 24 runs.
+> **Why the cdxgen release binary, not the image?** The official image (`ghcr.io/cdxgen/cdxgen`) is ~16.6 GB: a full build machine (JDK, Maven, Gradle, sbt, .NET, Python, Ruby, PHP, Go, Rust, Swift…) on AlmaLinux 10, which needs an x86-64-v3 (AVX2) CPU ("Fatal glibc error: CPU does not support x86-64-v3"). The README recommends the standalone binaries for CI: `cdxgen-linux-amd64` is 183 MB with Node built in. Two gotchas: it unpacks itself to `/tmp` (container `/tmp` must allow exec), and its Node needs `libatomic.so.1`, which slim images lack, so the script ships that one library next to the binary instead of changing the app images. Online licence lookup (`FETCH_LICENSE`) is off: slow, rate-limited, and the other generators already provide licences.
 
 ### Licences
 
@@ -126,7 +126,11 @@ First findings (Python): `chardet` is **LGPL** (a real violation); the native Py
 
 | Change | Effect |
 |---|---|
-| Persistent per-app Trivy cache (`sbom/.cache/<app>/trivy`) | Trivy's Java DB is downloaded once, not per scan (java: ~190s per scan saved) |
+| cdxgen release binary instead of building a tool image | No image build per job; the first CI run **hung 10+ min in every job** on `docker build --output type=local` exporting that image |
+| No `docker build --output type=local` at all | Stages are exported with `docker create` + `docker cp` (native SBOMs, Java's Maven repo) |
+| Every tool call goes through `step`: 10-min timeout, own log in `sbom/.cache/<app>/`, duration printed | A hang fails fast and names itself; logs are uploaded with the CI artifacts |
+| Persistent Trivy cache (+ `actions/cache` in CI) | Trivy's Java DB is downloaded once, not per scan (java: ~190s per scan saved) |
+| cdxgen binary cached (`actions/cache`, keyed by version) | 183 MB downloaded once |
 | Syft `--enrich` only for source scans | Images already carry licences (node: 55s saved) |
 | Offline Maven repo for Java (`maven-repo` stage) | No Maven Central rate limits (HTTP 429) |
 | `make -j sbom-all` | Apps in parallel (separate caches per app) |
@@ -161,7 +165,6 @@ scripts/
   check-licenses.sh      licence policy (grant)
   score-sbom.sh          SBOM quality (sbomqs)
 policy/licenses.yaml     licence allow-list
-tools/cdxgen/            cdxgen packaged from npm
 Makefile                 local entry point (APP=<app>, *-all targets)
 .github/workflows/       CI (matrix per app)
 docs/                    security-checks catalogue

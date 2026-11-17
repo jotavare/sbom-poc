@@ -34,12 +34,31 @@ jobs:
           persist-credentials: false
 
       - name: Tests (Dockerfile test stage)
+        timeout-minutes: 15
         run: make test APP="$APP"
 
+      # cdxgen release binary (+ libatomic), keyed by version: downloaded once
+      - name: Cache cdxgen binary
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: sbom/.cache/cdxgen-v13.8.0
+          key: cdxgen-v13.8.0-linux-amd64
+
+      # Trivy vulnerability/Java DBs: restore the latest, save a fresh copy each run
+      - name: Cache Trivy DBs
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: sbom/.cache/${{ matrix.app }}/trivy
+          key: trivy-${{ matrix.app }}-${{ github.run_id }}
+          restore-keys: trivy-${{ matrix.app }}-
+
       - name: Generate + check SBOMs (Syft, Trivy, cdxgen, native)
+        # each tool call is also limited to 10 min (STEP_TIMEOUT in generate-sbom.sh)
+        timeout-minutes: 25
         run: make sbom APP="$APP"
 
       - name: Compare, licences, quality
+        timeout-minutes: 10
         run: |
           make summary APP="$APP"
           cat "sbom/$APP/reports/summary.md" >> "$GITHUB_STEP_SUMMARY"
