@@ -23,7 +23,7 @@ def graph:
 def is_pkg($g): ($g.nodes[.] // {})
   | ((.type == "library" or .type == "framework") and .purl != null
      and ((.scope // "required") == "required")
-     and ((.purl | test("/poc-[a-z]+(@|$)|devsecops-sbom-poc")) | not));
+     and ((.purl | test("/poc-[a-z]+(@|$)|sbom-poc")) | not));
 
 # Direct dependencies of the app: packages reached from the root, walking
 # through non-package nodes (e.g. Trivy puts package.json between app and deps).

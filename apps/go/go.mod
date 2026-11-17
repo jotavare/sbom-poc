@@ -1,4 +1,4 @@
-module github.com/devsecops-sbom-poc/apps/go
+module github.com/jotavare/sbom-poc/apps/go
 
 go 1.24
 

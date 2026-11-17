@@ -1,8 +1,8 @@
-# DevSecOps SBOM PoC
+# SBOM PoC
 
 A proof of concept for software supply-chain transparency, built around **five small, deliberately vulnerable apps** (Python, Node.js, Go, Java, Rust). Iteration 1 covers **SBOMs end to end**: every SBOM stage the standards define, five generators, validation, licences, quality, and what actually runs. Iteration 2 **scans those SBOMs for vulnerabilities** with three scanners and gates the build. Later iterations add one class of security check each (secrets, SAST, signing, DAST…).
 
-> ⚠️ **Every app in `apps/` is intentionally insecure** (injection flaws, SSRF, unsafe deserialization, weak crypto, old dependencies with known CVEs). Run them on localhost only. Never deploy them.
+> **Warning: every app in `apps/` is intentionally insecure** (injection flaws, SSRF, unsafe deserialization, weak crypto, old dependencies with known CVEs). Run them on localhost only. Never deploy them.
 
 **Docs**
 - [`docs/SBOM-TYPES.md`](docs/SBOM-TYPES.md): the SBOM stages (CISA types, CycloneDX lifecycles, CISA 2025 minimum elements, BSI TR-03183-2), with quotes and sources
@@ -13,8 +13,8 @@ A proof of concept for software supply-chain transparency, built around **five s
 
 | # | Iteration | Status |
 |---|---|---|
-| 1 | Apps + SBOMs for all 4 stages (source, build, image, runtime) + validation, licences, quality, graph, blind spots | ✅ |
-| 2 | SBOM vulnerability scan (Grype, Trivy, OSV-Scanner) + gate on critical/high with a fix; distroless images | ✅ |
+| 1 | Apps + SBOMs for all 4 stages (source, build, image, runtime) + validation, licences, quality, graph, blind spots | done |
+| 2 | SBOM vulnerability scan (Grype, Trivy, OSV-Scanner) + gate on critical/high with a fix; distroless images | done |
 | 3 | Secrets scanning (Gitleaks or TruffleHog) | proposed |
 | 4 | SAST (Semgrep / Opengrep) | proposed |
 | 5 | Dockerfile + CI hardening (Hadolint, zizmor, actionlint) | proposed |
@@ -67,7 +67,7 @@ make infra-down              # remove the local registry + BuildKit builder
 
 ## Workflow
 
-**Pipeline map:** https://jotavare.github.io/devsecops-sbom-poc/ (the four SBOM stages, every CI step with its tools and outputs, where results go). Source: [`site/index.html`](site/index.html), published by [`pages.yml`](.github/workflows/pages.yml) on every change. The Pages site is public, although this repository is private.
+**Pipeline map:** https://jotavare.github.io/sbom-poc/ (the four SBOM stages, every CI step with its tools and outputs, where results go). Source: [`site/index.html`](site/index.html), published by [`pages.yml`](.github/workflows/pages.yml) on every change. The Pages site is public, although this repository is private.
 
 - CI ([`sbom.yml`](.github/workflows/sbom.yml)) runs **the same `make` targets** as local runs. Tools run as containers or binaries pinned by digest or checksum; actions pinned by commit SHA; read-only token; runner pinned to `ubuntu-26.04` (hosted runner images can't be pinned by digest).
 - Every tool call has a timeout and its own log (uploaded with the artifacts).
@@ -124,7 +124,7 @@ Every app listens on **8080** in its container and serves `GET /health`. **Every
 |---|---|
 | `check-sbom.sh` (fails the build) | missing generator output, image without digest or BuildKit attestation, a CycloneDX SBOM without a stage, a missing vulnerable marker (unless excused with a reason), a **dev/test dependency in what ships**, an image SBOM without OS packages |
 | `scan-vulns.sh` + `vuln-gate.sh` (fails the build) | a critical/high vulnerability **with a fix** in the image (union of 3 scanners × 3 image SBOMs) that isn't accepted in `vuln-accept.txt` (accepts expire), or a planted CVE no scanner finds. Report: scanner × SBOM matrix, agreement, planted CVEs, fix-first list (KEV, ran at runtime, severity, EPSS) |
-| `validate-sbom.sh` (fails the build) | invalid CycloneDX (`cyclonedx-cli`), SPDX 2.3 (`pyspdxtools`), SPDX 3.0.1 (`spdx3-validate` schema + SHACL; large files: official JSON schema with `jsonschema-rs`). Known generator bugs are shown as ⚠️ |
+| `validate-sbom.sh` (fails the build) | invalid CycloneDX (`cyclonedx-cli`), SPDX 2.3 (`pyspdxtools`), SPDX 3.0.1 (`spdx3-validate` schema + SHACL; large files: official JSON schema with `jsonschema-rs`). Known generator bugs are shown as warnings |
 | Comparison + graph | packages found by each generator (after normalising spelling), dependency graph vs `native-build` |
 | Licences (`grant`) | dependency licences vs [`policy/licenses.yaml`](policy/licenses.yaml): violation / unknown / ignored, after normalising licence expressions |
 | Quality (`sbomqs`) | scores per format, NTIA/CISA 2026, BSI v2.1, FSCT; missing minimum elements listed |

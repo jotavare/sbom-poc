@@ -205,7 +205,7 @@ A fast-growing category (2025–2026): AI agents and models that review code, au
 | A01 | AI code review on PRs | An LLM reviews each pull request's diff for vulnerabilities | Claude Code Security Review (MIT, needs Anthropic API key), OpenAI Codex Security (Apache-2.0, needs OpenAI key) | ⬜ |
 | A02 | Agentic security audit | A coding agent runs a multi-phase audit of a repo, with independently verified findings | Cloudflare security-audit-skill (MIT) | ⬜ |
 | A03 | AI-driven pentest | See T09 | Strix (Apache-2.0) | ⬜ |
-| A04 | AI agent skill / MCP supply chain | Scans **agent skills and MCP servers** (like the skill repos you might install into Claude Code) for malicious patterns | NVIDIA SkillSpector (Apache-2.0); BLA (MIT, single unknown author: review before use) | ⬜ |
+| A04 | AI agent skill / MCP supply chain | Scans **agent skills and MCP servers** (like skill repos installed into AI coding agents) for malicious patterns | NVIDIA SkillSpector (Apache-2.0); BLA (MIT, single unknown author: review before use) | ⬜ |
 | A05 | LLM red teaming | See T06 | Microsoft PyRIT (MIT), garak, promptfoo, DeepTeam | 📄 |
 
 ## 8c. Tools seen in the wild (reference only)
@@ -221,7 +221,7 @@ Tool lists that circulate on social media, checked against GitHub on 2026-11-17 
 | Trivy | Apache-2.0 | Scanner: CVEs, SBOM, IaC, secrets | B01–B03, C09 | ✅ in use |
 | Nuclei | MIT | Template-based scanner for running apps | T02 | Iteration 8 |
 | TruffleHog | AGPL-3.0 | Secrets scanner that **verifies** whether a found key still works | C02 | Iteration 3 (alternative to Gitleaks) |
-| NVIDIA SkillSpector | Apache-2.0 | Scanner for AI agent skills | A04 | Not for the apps; relevant for your own Claude Code skills |
+| NVIDIA SkillSpector | Apache-2.0 | Scanner for AI agent skills | A04 | Not for the apps; relevant for AI coding agent skills |
 | Semgrep | LGPL-2.1 | SAST | C01 | Iteration 4 |
 | OpenAI Codex Security | Apache-2.0 | AI vulnerability finding/fixing CLI | A01 | Later (needs paid key) |
 | ClamAV | GPL-2.0 | Malware scanner | B08 | Possible (image malware scan) |

@@ -52,7 +52,7 @@ purl_types() { jq -r "$LIBS | .[] | .purl // empty | capture(\"^pkg:(?<t>[^/]+)/
 #   - the app itself (poc-*, the Go module), which some tools list as a component
 IN_SCOPE='select((.scope // "required") == "required")
           | select((.purl // "") | test("[?&]arch=source") | not)
-          | select((.purl // "") | test("/poc-[a-z]+@|/poc-[a-z]+$|devsecops-sbom-poc") | not)'
+          | select((.purl // "") | test("/poc-[a-z]+@|/poc-[a-z]+$|sbom-poc") | not)'
 
 # Normalised "type/name@version" packages, so representation differences don't
 # look like different packages:
