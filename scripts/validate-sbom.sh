@@ -57,57 +57,84 @@ SPDX3_SCHEMA="$ROOT/.cache/spdx-3.0.1-json-schema.json"
   done
 ) 9> "$ROOT/.cache/py-validators.lock"
 
-py_tool() {  # <cache dir> <file> <python args...>: run a cached Python tool on one file
-  local pkgs="$1" f="$2"; shift 2
+# --- run each validator ONCE over all its files (one container per validator,
+#     not one per file: container start-up was most of the time) -----------------
+shopt -s nullglob
+FILES=()
+for f in "$DIR"/*.cdx.json "$DIR"/views/*.cdx.json "$DIR"/*.spdx.json "$DIR"/*.spdx3.json; do
+  FILES+=("${f#"$DIR"/}")
+done
+logname() { tr '/' '_' <<< "$1"; }
+
+CDX=() SPDX2=() SPDX3_FULL_LIST=() SPDX3_SCHEMA_LIST=()
+for rel in "${FILES[@]}"; do
+  case "$rel" in
+    *.cdx.json)   CDX+=("$rel:$(logname "$rel")") ;;
+    *.spdx3.json) if [[ "$SPDX3_FULL" == 1 ]] || (( $(stat -c %s "$DIR/$rel") <= SPDX3_SHACL_MAX_BYTES )); then
+                    SPDX3_FULL_LIST+=("$rel:$(logname "$rel")")
+                  else
+                    SPDX3_SCHEMA_LIST+=("$rel:$(logname "$rel")")
+                  fi ;;
+    *.spdx.json)  SPDX2+=("$rel:$(logname "$rel")") ;;
+  esac
+done
+
+batch() {  # <image> <PYTHONPATH or -> <command template> <file:log pairs...>
+  local image="$1" pypath="$2" cmd="$3"; shift 3
+  (( $# > 0 )) || return 0
   docker run --rm --security-opt label=disable --user "$(id -u):$(id -g)" -e HOME=/tmp \
-    -e PYTHONPATH="/cache/$(basename "$pkgs")" \
-    -v "$ROOT_ABS/.cache":/cache:ro -v "$(cd "$(dirname "$f")" && pwd)":/w:ro \
-    -v "$SCRIPTS_ABS":/scripts:ro "$PY_IMAGE" \
-    python "$@"
+    ${pypath:+-e PYTHONPATH=/cache/$pypath} \
+    -v "$ROOT_ABS/.cache":/cache:ro -v "$(cd "$DIR" && pwd)":/d:ro -v "$(cd "$LOGDIR" && pwd)":/logs \
+    -v "$SCRIPTS_ABS":/scripts:ro --entrypoint sh "$image" -c '
+      cmd="$1"; shift
+      for spec in "$@"; do
+        f="/d/${spec%%:*}"; l="/logs/${spec#*:}"
+        sh -c "$cmd" _ "$f" > "$l.log" 2>&1; echo $? > "$l.rc"
+      done' _ "$cmd" "$@"
 }
 
+batch "$CDX_CLI_IMAGE" "" '/cyclonedx validate --input-file "$1" --fail-on-errors' "${CDX[@]}"
+batch "$PY_IMAGE" "$(basename "$PYSPDX")" 'python -m spdx_tools.spdx.clitools.pyspdxtools -i "$1"' "${SPDX2[@]}"
+batch "$PY_IMAGE" "$(basename "$PYSPDX3")" 'python -m spdx3_validate --quiet --json "$1"' "${SPDX3_FULL_LIST[@]}"
+batch "$PY_IMAGE" "$(basename "$PYJSONSCHEMA")" \
+  'python /scripts/spdx3_schema_check.py /cache/spdx-3.0.1-json-schema.json "$1"' "${SPDX3_SCHEMA_LIST[@]}"
+
+# --- results table ---------------------------------------------------------------
 invalid=0
 echo "## Validation ($APP)"
 echo
 echo "| SBOM | Format | Result |"
 echo "|---|---|---|"
-shopt -s nullglob
-for f in "$DIR"/*.cdx.json "$DIR"/views/*.cdx.json "$DIR"/*.spdx.json "$DIR"/*.spdx3.json; do
-  rel="${f#"$DIR"/}"
-  log="$LOGDIR/$(tr '/' '_' <<< "$rel").log"
-  if [[ "$f" == *.cdx.json ]]; then
-    fmt="CycloneDX $(jq -r .specVersion "$f")"
-    docker run --rm --security-opt label=disable -v "$(cd "$(dirname "$f")" && pwd)":/w:ro \
-      "$CDX_CLI_IMAGE" validate --input-file "/w/$(basename "$f")" --fail-on-errors > "$log" 2>&1 && ok=1 || ok=0
-  elif [[ "$f" == *.spdx3.json ]]; then
-    fmt="SPDX $(jq -r '.["@context"] | tostring | capture("rdf/(?<v>[0-9.]+)/").v' "$f")"
-    size=$(stat -c %s "$f")
-    if [[ "$SPDX3_FULL" == 1 ]] || (( size <= SPDX3_SHACL_MAX_BYTES )); then
-      py_tool "$PYSPDX3" "$f" -m spdx3_validate --quiet --json "/w/$(basename "$f")" > "$log" 2>&1 || true
-      grep -qE "^ERROR:|Violation" "$log" && ok=0 || ok=1
+for rel in "${FILES[@]}"; do
+  f="$DIR/$rel"
+  log="$LOGDIR/$(logname "$rel").log"
+  rc=$(cat "$LOGDIR/$(logname "$rel").rc" 2> /dev/null || echo 1)
+  case "$rel" in
+    *.cdx.json)   fmt="CycloneDX $(jq -r .specVersion "$f")" ;;
+    *.spdx.json)  fmt="$(jq -r .spdxVersion "$f")" ;;
+    *.spdx3.json) fmt="SPDX $(jq -r '.["@context"] | tostring | capture("rdf/(?<v>[0-9.]+)/").v' "$f")" ;;
+  esac
+  ok=$(( rc == 0 ? 1 : 0 ))
+  if [[ "$rel" == *.spdx3.json ]]; then
+    if printf '%s\n' "${SPDX3_SCHEMA_LIST[@]}" | grep -q "^$rel:"; then
+      fmt="$fmt (schema only: $(( $(stat -c %s "$f") / 1024 )) KB, SHACL with SPDX3_FULL=1)"
     else
-      fmt="$fmt (schema only: $((size / 1024)) KB, SHACL with SPDX3_FULL=1)"
-      py_tool "$PYJSONSCHEMA" "$f" /scripts/spdx3_schema_check.py /cache/spdx-3.0.1-json-schema.json \
-        "/w/$(basename "$f")" > "$log" 2>&1 && ok=1 || ok=0
+      # spdx3-validate exits 0 even when SHACL fails: judge by its output
+      grep -qE "^ERROR:|Violation" "$log" && ok=0 || ok=1
     fi
-  else
-    fmt="$(jq -r .spdxVersion "$f")"
-    py_tool "$PYSPDX" "$f" -m spdx_tools.spdx.clitools.pyspdxtools -i "/w/$(basename "$f")" \
-      > "$log" 2>&1 && ok=1 || ok=0
   fi
   if (( ok )); then
     result="✅ valid"
   else
-    # most specific message: skip generic header lines, count repeats
-    # (`|| true`: head closes the pipe early, which pipefail would turn into an error)
     # SHACL reports: use the "Message:" lines; otherwise the most repeated line
+    # (`|| true`: head closes the pipe early, which pipefail would turn into an error)
     if grep -q "Message:" "$log"; then
       first=$(grep "Message:" "$log" | sed -E 's/^\s*Message: //' | sort | uniq -c | sort -rn \
               | head -1 | sed -E 's/^ *([0-9]+) (.*)/\2 (x\1)/' | cut -c1-140 | tr '|' '/' || true)
     else
-    first=$(grep -vE "^ERROR:|^Validation failed|^Violation of|Severity:|Source Shape|Focus Node|Value Node|Result Path|^\s*$" "$log" \
-            | sed -E 's/\[<.*//; s/^\s*Message: //' | sort | uniq -c | sort -rn \
-            | head -1 | sed -E 's/^ *([0-9]+) (.*)/\2 (x\1)/' | cut -c1-140 | tr '|' '/' || true)
+      first=$(grep -vE "^ERROR:|^Validation failed|^Violation of|Severity:|Source Shape|Focus Node|Value Node|Result Path|^\s*$" "$log" \
+              | sed -E 's/\[<.*//' | sort | uniq -c | sort -rn \
+              | head -1 | sed -E 's/^ *([0-9]+) (.*)/\2 (x\1)/' | cut -c1-140 | tr '|' '/' || true)
     fi
     [[ -n "$first" ]] || first=$(head -1 "$log" | cut -c1-140 | tr '|' '/' || true)
     if [[ -f "$ALLOW" ]] && grep -qE "^$rel[[:space:]]" "$ALLOW"; then

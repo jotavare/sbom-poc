@@ -48,12 +48,25 @@ jobs:
           path: sbom/.cache/cdxgen-v13.8.0
           key: cdxgen-v13.8.0-linux-amd64
 
-      # Trivy vulnerability/Java DBs: restore the latest, save a fresh copy each run
+      # static strace for the runtime SBOM, built from source (~60 s): cached by its
+      # Dockerfile, so it is rebuilt only when the pinned version changes
+      - name: Cache strace
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: sbom/.cache/strace-7.3
+          key: strace-${{ hashFiles('tools/strace-static/Dockerfile') }}
+
+      # Trivy vulnerability/Java DBs (java: ~920 MB): keyed by day, so a fresh copy
+      # is saved once a day instead of being uploaded on every run (~24 s)
+      - name: Date for the Trivy cache key
+        id: day
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
       - name: Cache Trivy DBs
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: sbom/.cache/${{ matrix.app }}/trivy
-          key: trivy-${{ matrix.app }}-${{ github.run_id }}
+          key: trivy-${{ matrix.app }}-${{ steps.day.outputs.day }}
           restore-keys: trivy-${{ matrix.app }}-
 
       - name: Generate + check SBOMs (Syft, Trivy, cdxgen, native, BuildKit)
