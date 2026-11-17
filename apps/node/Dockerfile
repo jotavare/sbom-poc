@@ -23,11 +23,20 @@ RUN npm ci --omit=dev --ignore-scripts \
 FROM scratch AS sbom-export
 COPY --from=sbom /native-build.cdx.json /
 
-# --- runtime stage (default): production deps only ---
-FROM base AS runtime
-RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
-COPY app.js ./
-USER node
+# --- deps stage: production dependencies, installed with npm in the build image
+FROM base AS deps
+RUN npm ci --omit=dev --ignore-scripts
+
+# --- runtime stage (default): distroless Node, no npm/corepack/yarn, no shell, non-root ---
+# The runtime SBOM showed the slim image's npm + corepack (145 packages, npm is
+# Artistic-2.0) never run; distroless ships only the node binary.
+# gcr.io/distroless/nodejs24-debian13:nonroot pinned by digest (2026-11-17)
+FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:6abfcb367ebc291572c774c1592a986be2ab26a2486f73093401327495a5962a AS runtime
+ENV NODE_ENV=production
+WORKDIR /srv
+COPY --from=deps /srv/node_modules ./node_modules
+COPY package.json app.js ./
+USER nonroot:nonroot
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s CMD ["node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-CMD ["node", "app.js"]
+HEALTHCHECK --interval=30s --timeout=3s CMD ["/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+ENTRYPOINT ["/nodejs/bin/node", "/srv/app.js"]

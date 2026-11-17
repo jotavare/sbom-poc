@@ -36,13 +36,13 @@ RUN cp /sbom-native/bom.json /native-build.cdx.json
 FROM scratch AS sbom-export
 COPY --from=sbom /native-build.cdx.json /
 
-# --- runtime stage (default): JRE only, non-root ---
-# eclipse-temurin:17-jre pinned by digest (2026-11-17); Ubuntu-based
-FROM eclipse-temurin:17-jre@sha256:fb2cec8da84e3f086b59e29bf432d372e396fe0c247adcfb89303a28c2e313c0 AS runtime
+# --- runtime stage (default): distroless JRE, no shell, non-root ---
+# gcr.io/distroless/java17-debian13:nonroot pinned by digest (2026-11-17)
+FROM gcr.io/distroless/java17-debian13:nonroot@sha256:b0719fc18858c53530b7301c25fa410075f0fdc442a78d3ee1786d1984075404 AS runtime
 WORKDIR /srv
 COPY --from=build /src/target/poc-java.jar ./poc-java.jar
-RUN useradd --system --uid 10001 --no-create-home appuser
-USER appuser
+USER nonroot:nonroot
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=3s --start-period=30s CMD ["sh", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ok <&3"]
-ENTRYPOINT ["java", "-jar", "/srv/poc-java.jar"]
+# No shell for a curl-style check: the app checks itself (App.main "healthcheck")
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s CMD ["/usr/bin/java", "-jar", "/srv/poc-java.jar", "healthcheck"]
+ENTRYPOINT ["/usr/bin/java", "-jar", "/srv/poc-java.jar"]
