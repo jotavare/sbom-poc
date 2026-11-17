@@ -120,33 +120,17 @@ else
   : > "$WORK/jars.txt"
 fi
 
-# --- map files to packages (Syft ownership + package locations) -----------------------
-# Ownership sources: "contains" relationships (OS packages), the file list in
-#   Python metadata (relative to site-packages), package locations (binaries,
-#   JARs), and npm package directories.
-# usrmerge: Debian/Ubuntu make /lib a link to /usr/lib, so a file may be opened
-#   as /lib/x/libc.so.6 but owned as /usr/lib/x/libc.so.6: both sides normalised.
-jq -n --rawfile files "$WORK/files.txt" --rawfile jars "$WORK/jars.txt" --slurpfile s "$SYFT_JSON" '
-  def usrmerge: sub("^/(?<d>lib|lib64|bin|sbin)/"; "/usr/\(.d)/");
-  def normpath: split("/") | reduce .[] as $p ([];
-      if $p == "" or $p == "." then . elif $p == ".." then .[:-1] else . + [$p] end)
-    | "/" + join("/") | usrmerge;
+# --- map files to packages (Syft ownership; see scripts/ownership.jq) ---------------------
+jq -n -L "$(dirname "$0")" --rawfile files "$WORK/files.txt" --rawfile jars "$WORK/jars.txt" \
+   --slurpfile s "$SYFT_JSON" '
+  include "ownership";
   ($files | split("\n") | map(select(. != "") | usrmerge)) as $used
   | ($jars  | split("\n") | map(select(. != ""))) as $jarsUsed
   | ($used | map({key: ., value: true}) | from_entries) as $usedSet
-  | ($s[0].files // [] | map({key: .id, value: (.location.path | normpath)}) | from_entries) as $filePath
-  | ($s[0].artifactRelationships // [] | map(select(.type == "contains"))
-      | group_by(.parent) | map({key: .[0].parent, value: [.[].child]}) | from_entries) as $owns
-  | [ $s[0].artifacts[] as $a
-      | ([$a.locations[]? | .path | normpath]) as $locs
-      | ( [($owns[$a.id] // [])[] | $filePath[.] // empty]
-        + (if $a.metadata.sitePackagesRootPath then
-             [$a.metadata.files[]?.path | ($a.metadata.sitePackagesRootPath + "/" + .) | normpath]
-           else [] end) ) as $owned
-      | ($locs | map(select(test("/node_modules/")) | sub("/package\\.json$"; "/"))) as $npmDirs
-      | ( [$locs[], $owned[] | select($usedSet[.])]
-        + [$used[] as $u | $npmDirs[] | select(. as $d | $u | startswith($d)) | $u]
-        + [$jarsUsed[] as $j | $locs[] as $l | select($j == $l or ($j | endswith($l))) | $j]
+  | [ $s[0] | artifact_ownership[] as $a
+      | ( [$a.files[] | select($usedSet[.])]
+        + [$used[] as $u | $a.dirs[] | select(. as $d | $u | startswith($d)) | $u]
+        + [$jarsUsed[] as $j | $a.files[] as $l | select($j == $l or ($j | endswith($l))) | $j]
         ) as $evidence
       | select(($evidence | length) > 0)
       | {purl: $a.purl, name: $a.name, version: $a.version, type: $a.type,

@@ -21,7 +21,7 @@ PORT_java   := 8004
 PORT_rust   := 8005
 PORT         = $(or $(PORT_$(APP)),8000)
 
-.PHONY: help apps port check-app test build run stop sbom runtime pipeline sbom-compare validate licenses quality \
+.PHONY: help apps port check-app test build run stop sbom runtime unmanaged pipeline sbom-compare validate licenses quality \
         summary test-all build-all sbom-all stop-all report lint infra-down clean
 
 help: ## Show targets
@@ -59,12 +59,15 @@ sbom: build ## Generate source/build/image SBOMs (Syft, Trivy, cdxgen, native, B
 runtime: ## Runtime SBOM: run the image under strace, send probes, keep packages actually used (after make sbom)
 	bash scripts/runtime-sbom.sh $(APP) $(SBOM_DIR)
 
+unmanaged: ## Executables/libraries in the image that no package claims (SBOM blind spots)
+	bash scripts/unmanaged-files.sh $(APP) $(SBOM_DIR)
+
 validate: ## Validate every SBOM against its spec; writes sbom/<app>/reports/validation.md
 	@mkdir -p $(SBOM_DIR)/$(APP)/reports
 	bash scripts/validate-sbom.sh $(APP) $(SBOM_DIR) > $(SBOM_DIR)/$(APP)/reports/validation.md
 	@cat $(SBOM_DIR)/$(APP)/reports/validation.md
 
-pipeline: sbom runtime validate summary ## Everything for one app: SBOMs, runtime SBOM, validation, reports
+pipeline: sbom runtime unmanaged validate summary ## Everything for one app: SBOMs, runtime SBOM, validation, reports
 
 sbom-compare: ## Compare the generators for the app (run `make sbom` first)
 	@SBOM_ROOT=$(SBOM_DIR) bash scripts/compare-sbom.sh $(APP)
@@ -79,6 +82,7 @@ summary: ## Write sbom/<app>/reports/summary.md (comparison, runtime, validation
 	@mkdir -p $(SBOM_DIR)/$(APP)/reports
 	@{ SBOM_ROOT=$(SBOM_DIR) bash scripts/compare-sbom.sh $(APP); \
 	   if [[ -s $(SBOM_DIR)/$(APP)/reports/runtime.md ]]; then cat $(SBOM_DIR)/$(APP)/reports/runtime.md; fi; \
+	   if [[ -s $(SBOM_DIR)/$(APP)/reports/unmanaged.md ]]; then cat $(SBOM_DIR)/$(APP)/reports/unmanaged.md; fi; \
 	   if [[ -s $(SBOM_DIR)/$(APP)/reports/validation.md ]]; then cat $(SBOM_DIR)/$(APP)/reports/validation.md; \
 	   else bash scripts/validate-sbom.sh $(APP) $(SBOM_DIR); fi; \
 	   bash scripts/check-licenses.sh $(APP) $(SBOM_DIR); \

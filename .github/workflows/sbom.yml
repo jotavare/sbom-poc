@@ -61,9 +61,9 @@ jobs:
         timeout-minutes: 30
         run: make sbom APP="$APP"
 
-      - name: Runtime SBOM (strace + probes)
+      - name: Runtime SBOM (strace + probes) and unmanaged files
         timeout-minutes: 15
-        run: make runtime APP="$APP"
+        run: make runtime unmanaged APP="$APP"
 
       - name: Validate SBOMs (cyclonedx-cli, pyspdxtools, spdx3-validate)
         timeout-minutes: 20
