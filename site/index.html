@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="DevSecOps SBOM PoC: the four SBOM stages, each CI step with its tools and outputs, and the findings so far.">
+<style>
+:root { color-scheme: light; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; font: 14px system-ui, sans-serif; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+</style>
+<title>SBOM Pipeline Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Layout: a single reading column like an engineering run-sheet: stage strip, then the CI job as a numbered track, then outputs. */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --ink: #18202b;
+  --muted: #5a6575;
+  --line: #d9dee6;
+  --accent: #2d5bd7;
+  --accent-soft: #e6ecfb;
+  --s1: #2d7d6f; --s2: #8a5a12; --s3: #2d5bd7; --s4: #9a3a7a;
+  --gate: #b42318; --gate-soft: #fdecea;
+  --ok: #2d7d6f;
+  --font-display: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141b; --surface: #161d27; --ink: #e6eaf0; --muted: #9aa6b6; --line: #2a3442;
+    --accent: #7ea2ff; --accent-soft: #1c2740;
+    --s1: #5cc2ae; --s2: #e0a64a; --s3: #7ea2ff; --s4: #e07ac0;
+    --gate: #ff8a7a; --gate-soft: #3a1d1b; --ok: #5cc2ae;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141b; --surface: #161d27; --ink: #e6eaf0; --muted: #9aa6b6; --line: #2a3442;
+  --accent: #7ea2ff; --accent-soft: #1c2740;
+  --s1: #5cc2ae; --s2: #e0a64a; --s3: #7ea2ff; --s4: #e07ac0;
+  --gate: #ff8a7a; --gate-soft: #3a1d1b; --ok: #5cc2ae;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 48px;
+}
+main { max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: 40px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(1.7rem, 4vw, 2.3rem); font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.25rem; font-weight: 600; }
+h3 { font-size: 1rem; font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+header { display: flex; flex-direction: column; gap: 10px; }
+header p { color: var(--muted); }
+section { display: flex; flex-direction: column; gap: 16px; }
+.section-head { display: flex; flex-direction: column; gap: 6px; }
+.section-head p { color: var(--muted); }
+
+/* stage strip */
+.stages { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); }
+.stage { padding: 16px; display: flex; flex-direction: column; gap: 8px; border-left: 1px solid var(--line); position: relative; min-width: 0; }
+.stage:first-child { border-left: 0; }
+.stage::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 4px; background: var(--c); }
+.stage .tag { font-family: var(--font-mono); font-size: 0.72rem; color: var(--c); letter-spacing: 0.04em; }
+.stage .q { font-weight: 500; }
+.stage dl { margin: 0; display: grid; gap: 6px; font-size: 0.85rem; }
+.stage dt { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.stage dd { margin: 0; overflow-wrap: anywhere; }
+.s1 { --c: var(--s1); } .s2 { --c: var(--s2); } .s3 { --c: var(--s3); } .s4 { --c: var(--s4); }
+
+/* CI track */
+.track { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.step { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; }
+.rail { display: flex; flex-direction: column; align-items: center; }
+.dot { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-family: var(--font-mono); font-size: 0.8rem; font-weight: 500; background: var(--surface); border: 2px solid var(--c, var(--accent)); color: var(--c, var(--accent)); flex: none; }
+.rail::after { content: ""; flex: 1; width: 2px; background: var(--line); margin-block: 4px; }
+.step:last-child .rail::after { display: none; }
+.card { padding: 2px 0 22px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.card .title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.card .script { font-family: var(--font-mono); font-size: 0.82rem; color: var(--muted); }
+.card p { color: var(--ink); }
+.meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-family: var(--font-mono); font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: var(--surface); }
+.chip.gate { color: var(--gate); border-color: var(--gate); background: var(--gate-soft); }
+.chip.stage-chip { color: var(--c); border-color: var(--c); }
+.out { font-size: 0.85rem; color: var(--muted); }
+.out code { color: var(--ink); }
+
+/* outputs */
+.outputs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.box p, .box li { font-size: 0.88rem; }
+.box ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
+
+/* findings table */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.88rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+tr:last-child td { border-bottom: 0; }
+td.num { white-space: nowrap; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 0.82rem; color: var(--muted); }
+footer { color: var(--muted); font-size: 0.82rem; }
+
+@media (max-width: 760px) {
+  .stages { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .stage:nth-child(3) { border-left: 0; }
+  .stage:nth-child(n+3) { border-top: 1px solid var(--line); }
+  .outputs { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 460px) {
+  .stages { grid-template-columns: minmax(0, 1fr); }
+  .stage { border-left: 0; }
+  .stage + .stage { border-top: 1px solid var(--line); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .step .dot { transition: transform .15s ease; }
+  .step:hover .dot { transform: scale(1.08); }
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span class="eyebrow">devsecops-sbom-poc · iteration 1</span>
+    <h1>SBOM Pipeline Map</h1>
+    <p>How one push turns five deliberately vulnerable apps into SBOMs for every stage, checks them, and reports what they show. Each CI job runs the same <code>make pipeline</code> you can run locally.</p>
+  </header>
+
+  <section aria-labelledby="stages">
+    <div class="section-head">
+      <h2 id="stages">The four SBOM stages</h2>
+      <p>CISA defines SBOM types by <em>when</em> they're made; each SBOM records its stage in CycloneDX <code>metadata.lifecycles</code>.</p>
+    </div>
+    <div class="stages">
+      <div class="stage s1">
+        <span class="tag">1 · SOURCE · pre-build</span>
+        <span class="q">What does the repo declare?</span>
+        <dl><dt>Files</dt><dd><code>syft/trivy/cdxgen-source.*</code></dd><dt>Made by</dt><dd>Syft, Trivy, cdxgen on <code>apps/&lt;app&gt;</code></dd></dl>
+      </div>
+      <div class="stage s2">
+        <span class="tag">2 · BUILD · build</span>
+        <span class="q">What did the build resolve?</span>
+        <dl><dt>Files</dt><dd><code>native-build.cdx.json</code>, <code>buildkit-image.spdx.json</code></dd><dt>Made by</dt><dd>the language's OWASP generator inside the Docker build; BuildKit attestation</dd></dl>
+      </div>
+      <div class="stage s3">
+        <span class="tag">3 · ANALYZED · post-build</span>
+        <span class="q">What is in the image?</span>
+        <dl><dt>Files</dt><dd><code>syft/trivy/cdxgen-image.*</code>, <code>views/</code></dd><dt>Made by</dt><dd>Syft, Trivy, cdxgen on the built image</dd></dl>
+      </div>
+      <div class="stage s4">
+        <span class="tag">4 · RUNTIME · operations</span>
+        <span class="q">What actually runs?</span>
+        <dl><dt>Files</dt><dd><code>runtime.cdx.json</code></dd><dt>Made by</dt><dd>the app under strace while probes exercise it</dd></dl>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="job">
+    <div class="section-head">
+      <h2 id="job">One CI job, step by step</h2>
+      <p>The <code>sbom.yml</code> workflow runs this job once per app (python, node, go, java, rust) in parallel, about 6 minutes in total.</p>
+      <div class="legend"><span><span class="chip gate">fails the build</span> a failed check stops the job</span><span><span class="chip">report</span> results only</span></div>
+    </div>
+    <ol class="track">
+      <li class="step"><div class="rail"><span class="dot">1</span></div><div class="card">
+        <div class="title"><h3>Tests</h3><span class="script">make test</span></div>
+        <p>Builds the Dockerfile's <code>test</code> stage, which runs the app's own tests.</p>
+        <div class="meta"><span class="chip gate">fails the build</span></div>
+      </div></li>
+      <li class="step s2"><div class="rail"><span class="dot">2</span></div><div class="card">
+        <div class="title"><h3>Build the image</h3><span class="script">build-image.sh</span></div>
+        <p>BuildKit builds the runtime image, attaches its own SBOM and SLSA provenance, pushes it to a local registry and pulls it back, so every tool scans the same digest.</p>
+        <div class="meta"><span class="chip stage-chip">stage 2 attestation</span><span class="chip">BuildKit</span><span class="chip">local registry</span></div>
+        <div class="out">→ <code>artifact.json</code>, <code>buildkit-image.spdx.json</code>, <code>buildkit-provenance.json</code></div>
+      </div></li>
+      <li class="step"><div class="rail"><span class="dot">3</span></div><div class="card">
+        <div class="title"><h3>Generate SBOMs</h3><span class="script">generate-sbom.sh</span></div>
+        <p>Source scans (stage 1), the native build SBOM (stage 2) and image scans (stage 3). No tool gets the Docker socket: the image is scanned from a saved tarball, every tool call has a 10-minute timeout and its own log.</p>
+        <div class="meta"><span class="chip">Syft</span><span class="chip">Trivy</span><span class="chip">cdxgen</span><span class="chip">cyclonedx-py · npm · gomod · maven · cargo</span></div>
+        <div class="out">→ CycloneDX 1.7, SPDX 2.3, SPDX 3.0.1 files</div>
+      </div></li>
+      <li class="step"><div class="rail"><span class="dot">4</span></div><div class="card">
+        <div class="title"><h3>Label stages, derive views</h3><span class="script">label-lifecycle.sh · make-views.sh</span></div>
+        <p>Every SBOM gets its stage. Each image SBOM is split into an OS view (deb packages) and an app view (language packages), so different policies can apply.</p>
+        <div class="meta"><span class="chip">jq</span></div>
+        <div class="out">→ <code>views/&lt;gen&gt;-image-os</code>, <code>-app</code></div>
+      </div></li>
+      <li class="step"><div class="rail"><span class="dot">5</span></div><div class="card">
+        <div class="title"><h3>Check</h3><span class="script">check-sbom.sh</span></div>
+        <p>Every expected file exists, the image has a digest, every SBOM declares its stage, the vulnerable marker packages are found, and no dev/test dependency ships.</p>
+        <div class="meta"><span class="chip gate">fails the build</span></div>
+      </div></li>
+      <li class="step s4"><div class="rail"><span class="dot">6</span></div><div class="card">
+        <div class="title"><h3>Runtime SBOM</h3><span class="script">runtime-sbom.sh</span></div>
+        <p>Runs the unchanged image with the app under a static strace, sends the probes, and maps every opened or executed file to its package.</p>
+        <div class="meta"><span class="chip stage-chip">stage 4</span><span class="chip">strace 7.3</span></div>
+        <div class="out">→ <code>runtime.cdx.json</code>, ships-vs-runs table</div>
+      </div></li>
+      <li class="step"><div class="rail"><span class="dot">7</span></div><div class="card">
+        <div class="title"><h3>Blind spots</h3><span class="script">unmanaged-files.sh</span></div>
+        <p>Lists executables and libraries in the image that no package claims, so no package-based SBOM describes them.</p>
+        <div class="meta"><span class="chip">report</span></div>
+      </div></li>
+      <li class="step"><div class="rail"><span class="dot">8</span></div><div class="card">
+        <div class="title"><h3>Validate</h3><span class="script">validate-sbom.sh</span></div>
+        <p>Checks every SBOM against its specification. Known generator bugs are recorded and shown as warnings instead of being hidden.</p>
+        <div class="meta"><span class="chip gate">fails the build</span><span class="chip">cyclonedx-cli</span><span class="chip">pyspdxtools</span><span class="chip">spdx3-validate</span><span class="chip">jsonschema-rs</span></div>
+      </div></li>
+      <li class="step"><div class="rail"><span class="dot">9</span></div><div class="card">
+        <div class="title"><h3>Report</h3><span class="script">summary.sh</span></div>
+        <p>Compares the generators and their dependency graphs, checks licences against the policy, and scores SBOM quality; writes the app's report by stage.</p>
+        <div class="meta"><span class="chip">report</span><span class="chip">grant</span><span class="chip">sbomqs</span></div>
+        <div class="out">→ <code>reports/summary.md</code>, CI job summary</div>
+      </div></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="outputs">
+    <div class="section-head"><h2 id="outputs">Where results go</h2></div>
+    <div class="outputs">
+      <div class="box"><h3>Per app</h3><p>Artifact <code>sbom-&lt;app&gt;</code>: all SBOMs, views, reports and tool logs, kept 30 days.</p></div>
+      <div class="box"><h3>Combined</h3><p>The report job merges every app's summary into <code>SBOM-REPORT.md</code> (artifact <code>sbom-report</code>), stamped with commit, tool versions and image digests.</p></div>
+      <div class="box"><h3>By hand</h3><p>The <code>scancode.yml</code> workflow compares declared licences with those found in the files (python, node, java). Slow, so run when needed.</p></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="findings">
+    <div class="section-head"><h2 id="findings">What it found so far</h2></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Area</th><th>Finding</th></tr></thead>
+        <tbody>
+          <tr><td>Runtime</td><td>node: 69 of 214 npm packages run; the 145 unused are exactly npm and corepack from the base image</td></tr>
+          <tr><td>Runtime</td><td>OS packages that run: 2–3 of 87–140 in every image</td></tr>
+          <tr><td>Graph</td><td>java: links matching the build SBOM: Trivy 60/60, cdxgen 29/60, Syft 0/60</td></tr>
+          <tr><td>Blind spots</td><td>python: 119 files of the compiled CPython in <code>/usr/local</code> belong to no package</td></tr>
+          <tr><td>Licences</td><td>python: <code>chardet</code> is LGPL; Werkzeug ships Ubuntu font files (Ubuntu Font Licence, CC-BY) that no metadata declares</td></tr>
+          <tr><td>Formats</td><td>BuildKit's SPDX 2.3 lacks required SHA-1 file checksums; Syft's and cdxgen's SPDX 3.0.1 fail the official SHACL shapes</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>Iteration 1 of the DevSecOps PoC. Next: CVE scanning of these SBOMs (Grype, Trivy).</footer>
+</main>
+</body>
+</html>

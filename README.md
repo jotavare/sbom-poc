@@ -65,30 +65,7 @@ make infra-down              # remove the local registry + BuildKit builder
 
 ## Workflow
 
-```mermaid
-flowchart TB
-  subgraph CI["CI: one job per app (matrix: python, node, go, java, rust)"]
-    direction TB
-    T["Tests<br/>Dockerfile test stage"]
-    B["build-image.sh<br/>BuildKit build → local registry<br/>+ SBOM & SLSA provenance attestations<br/>→ artifact.json (image digest)"]
-    subgraph G["generate-sbom.sh"]
-      direction LR
-      S1["1 Source<br/>Syft · Trivy · cdxgen<br/>on apps/&lt;app&gt;"]
-      S2["2 Build<br/>native OWASP generator<br/>inside the Docker build"]
-      S3["3 Analyzed<br/>Syft · Trivy · cdxgen<br/>on the image"]
-    end
-    L["label-lifecycle.sh + make-views.sh<br/>stage on every SBOM · OS/app views"]
-    C["check-sbom.sh<br/>files · markers · dev deps must not ship · stage set"]
-    R["runtime-sbom.sh: 4 Runtime<br/>app under strace + probes → runtime.cdx.json"]
-    U["unmanaged-files.sh<br/>files no package claims"]
-    V["validate-sbom.sh<br/>cyclonedx-cli · pyspdxtools · spdx3-validate / jsonschema-rs"]
-    M["summary.sh<br/>compare + graph · licences (grant) · quality (sbomqs)"]
-    T --> B --> G --> L --> C --> R --> U --> V --> M
-  end
-  M --> A[("artifact sbom-&lt;app&gt;<br/>SBOMs, reports, logs")]
-  A --> REP["Combined report job<br/>sbom/SBOM-REPORT.md"]
-  SC["Manual workflow: ScanCode<br/>declared vs detected licences"] -.-> A
-```
+**Pipeline map:** https://jotavare.github.io/devsecops-sbom-poc/ (the four SBOM stages, every CI step with its tools and outputs, where results go). Source: [`site/index.html`](site/index.html), published by [`pages.yml`](.github/workflows/pages.yml) on every change. The Pages site is public, although this repository is private.
 
 - CI ([`sbom.yml`](.github/workflows/sbom.yml)) runs **the same `make` targets** as local runs. Tools run as containers or binaries pinned by digest or checksum; actions pinned by commit SHA; read-only token; runner pinned to `ubuntu-26.04` (hosted runner images can't be pinned by digest).
 - Every tool call has a timeout and its own log (uploaded with the artifacts).
@@ -219,6 +196,7 @@ scripts/
 tools/                     strace-static, scancode (built from pinned sources)
 policy/licenses.yaml       licence allow-list
 docs/                      SBOM types, security-checks catalogue
-.github/workflows/         sbom.yml (every push), scancode.yml (manual)
+site/                      pipeline map (GitHub Pages)
+.github/workflows/         sbom.yml (every push), scancode.yml (manual), pages.yml (site/)
 sbom/                      generated output (git-ignored)
 ```
