@@ -38,8 +38,8 @@ check-app:
 	@[[ -f apps/$(APP)/Dockerfile ]] || { echo "Unknown APP=$(APP). Choose one of: $(APPS)" >&2; exit 1; }
 
 # --- one app ------------------------------------------------------------------
-test: check-app ## Run the app's tests (Dockerfile `test` stage)
-	docker build --target test -t poc-$(APP):test apps/$(APP)
+test: check-app ## Run the app's tests (Dockerfile `test` stage, on the shared BuildKit builder)
+	@bash -c 'source scripts/buildkit.sh && bk_ensure $(SBOM_DIR) && bk_build $(APP) test'
 
 build: check-app ## Build with BuildKit (+ SBOM & provenance attestations), push to the local registry, pull back as poc-<app>:local
 	bash scripts/build-image.sh $(APP) $(SBOM_DIR)

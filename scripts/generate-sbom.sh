@@ -60,6 +60,7 @@ CACHE_ABS="$(cd "$CACHE" && pwd)"
 SRC_ABS="$(cd "$APP_DIR" && pwd)"
 
 log() { echo "==> [$APP] $*"; }
+source "$(dirname "$0")/buildkit.sh"   # bk_ensure / bk_build: the shared builder
 has_stage() { grep -qiE "^FROM .* AS $1\$" "$APP_DIR/Dockerfile"; }
 
 # step <name> <command...>: runs with a timeout, sends output to
@@ -74,7 +75,8 @@ step() {
   # (`|| true`: helpers defined later in the script don't exist yet for early steps)
   state="$({ declare -p APP APP_DIR OUT_ROOT OUT_ABS CACHE_ABS SRC_ABS M2_MOUNT \
                         CDXGEN_VERSION CDXGEN_SHA256 CDXGEN_RUNNER_IMAGE
-             declare -f log run_tool export_stage fetch_cdxgen; } 2> /dev/null || true)"
+             declare -p BK_REGISTRY BK_BUILDER
+           declare -f log run_tool export_stage fetch_cdxgen bk_build; } 2> /dev/null || true)"
   timeout --kill-after=30 "$STEP_TIMEOUT" \
     bash -c "$state"$'\n''"$@"' _ "$@" > "$logf" 2>&1 || rc=$?
   if (( rc != 0 )); then
@@ -86,12 +88,13 @@ step() {
   log "$name ok ($((SECONDS - start))s)"
 }
 
-# export_stage <stage> <path-in-stage> <dest-dir>: builds a Dockerfile stage as an
-# image and copies files out with `docker create` + `docker cp`. Deliberately not
-# `docker build --output type=local`: on GitHub runners that hung for 10+ minutes.
+# export_stage <stage> <path-in-stage> <dest-dir>: builds a Dockerfile stage on the
+# shared BuildKit builder (reusing the layers the test/runtime builds already made),
+# pulls it through the local registry and copies files out with `docker create` +
+# `docker cp`. Deliberately not `--output type=local`: that hung on GitHub runners.
 export_stage() {
   local stage="$1" path="$2" dest="$3" tag="poc-$APP:$1" cid
-  docker build --progress=plain --target "$stage" -t "$tag" "$APP_DIR" || return
+  bk_build "$APP" "$stage" --pull-as "$tag" || return
   cid=$(docker create "$tag" /none) || return
   mkdir -p "$dest"
   docker cp "$cid:$path" "$dest"; local rc=$?
@@ -99,6 +102,7 @@ export_stage() {
   return "$rc"
 }
 
+bk_ensure "$OUT_ROOT"
 docker image inspect "$IMAGE" > /dev/null 2>&1 \
   || { echo "error: image $IMAGE not found (run: make build APP=$APP)" >&2; exit 1; }
 
@@ -242,7 +246,7 @@ gen_cdxgen() {
   (( ${#M2_MOUNT[@]} )) && env+=(-e "MVN_ARGS=-o -Dmaven.repo.local=/tmp/.m2/repository"
                                   -e CDX_MAVEN_PLUGIN=org.cyclonedx:cyclonedx-maven-plugin:2.9.3)
 
-  step cdxgen-base-image docker build --progress=plain --target base -t "poc-$APP:base" "$APP_DIR"
+  step cdxgen-base-image bk_build "$APP" base --pull-as "poc-$APP:base"
   local libdir; libdir="$(dirname "$CDXGEN_BIN")/lib"
   # --no-install-deps keeps cdxgen from running pip/npm/cargo installs. For Java it
   # would also skip Maven ("only the direct dependencies declared in pom.xml");

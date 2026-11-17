@@ -19,12 +19,11 @@ OUT_ROOT="${2:-sbom}"
 APP_DIR="apps/$APP"
 [[ -f "$APP_DIR/Dockerfile" ]] || { echo "error: $APP_DIR/Dockerfile not found" >&2; exit 1; }
 
-PORT="${REGISTRY_PORT:-5055}"
-REGISTRY="localhost:$PORT"
-REGISTRY_IMAGE="registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"
-BUILDKIT_IMAGE="moby/buildkit:buildx-stable-1@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe"
+# shared BuildKit builder + local registry (scripts/buildkit.sh)
+source "$(dirname "$0")/buildkit.sh"
+REGISTRY="$BK_REGISTRY"
+BUILDER="$BK_BUILDER"
 SBOM_SCANNER="docker/buildkit-syft-scanner:stable-1@sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315"
-BUILDER="poc-builder"
 COMMIT="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
 TAG="$REGISTRY/poc-$APP:${COMMIT:0:12}"
 LOCAL_TAG="poc-$APP:local"
@@ -35,23 +34,7 @@ mkdir -p "$OUT" "$OUT_ROOT/.cache"
 log() { echo "==> [$APP] $*"; }
 
 # --- shared infrastructure: one registry + one BuildKit builder (parallel-safe)
-(
-  flock 9
-  if [[ "$(docker inspect -f '{{.State.Running}}' poc-registry 2> /dev/null)" != "true" ]]; then
-    log "starting local registry on 127.0.0.1:$PORT"
-    docker rm -f poc-registry > /dev/null 2>&1 || true
-    docker run -d --name poc-registry --restart unless-stopped \
-      -p "127.0.0.1:$PORT:5000" "$REGISTRY_IMAGE" > /dev/null
-  fi
-  if ! docker buildx inspect "$BUILDER" > /dev/null 2>&1; then
-    log "creating BuildKit builder $BUILDER"
-    cfg="$OUT_ROOT/.cache/buildkitd.toml"
-    printf '[registry."%s"]\n  http = true\n  insecure = true\n' "$REGISTRY" > "$cfg"
-    # host network: the builder reaches the registry on localhost
-    docker buildx create --name "$BUILDER" --driver docker-container \
-      --driver-opt "network=host,image=$BUILDKIT_IMAGE" --buildkitd-config "$cfg" > /dev/null
-  fi
-) 9> "$OUT_ROOT/.cache/infra.lock"
+bk_ensure "$OUT_ROOT"
 
 # --- build + attest + push ------------------------------------------------------
 log "build $TAG (SBOM + provenance attestations)"
