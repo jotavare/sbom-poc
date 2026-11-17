@@ -162,7 +162,8 @@ gen_syft() {
   step syft-image run_tool -e SYFT_FILE_METADATA_DIGESTS=sha1,sha256,sha512 \
     "$SYFT_IMAGE" scan -q docker-archive:/cache/image.tar "${common[@]}" \
     -o cyclonedx-json=/out/syft-image.cdx.json -o spdx-json=/out/syft-image.spdx.json \
-    -o spdx-json@3.0=/out/syft-image.spdx3.json
+    -o spdx-json@3.0=/out/syft-image.spdx3.json \
+    -o syft-json=/cache/syft-image.syft.json   # file ownership, used by runtime-sbom.sh
 }
 
 # --- Trivy ----------------------------------------------------------------------

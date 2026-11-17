@@ -56,11 +56,18 @@ jobs:
           key: trivy-${{ matrix.app }}-${{ github.run_id }}
           restore-keys: trivy-${{ matrix.app }}-
 
-      - name: Generate + check SBOMs (Syft, Trivy, cdxgen, native)
-        # each tool call is also limited to 10 min (STEP_TIMEOUT in generate-sbom.sh);
-        # validation of large SPDX 3 files (JSON schema) can take several minutes
-        timeout-minutes: 50
+      - name: Generate + check SBOMs (Syft, Trivy, cdxgen, native, BuildKit)
+        # each tool call is also limited to 10 min (STEP_TIMEOUT in generate-sbom.sh)
+        timeout-minutes: 30
         run: make sbom APP="$APP"
+
+      - name: Runtime SBOM (strace + probes)
+        timeout-minutes: 15
+        run: make runtime APP="$APP"
+
+      - name: Validate SBOMs (cyclonedx-cli, pyspdxtools, spdx3-validate)
+        timeout-minutes: 20
+        run: make validate APP="$APP"
 
       - name: Compare, licences, quality
         timeout-minutes: 10

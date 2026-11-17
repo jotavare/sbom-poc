@@ -1,0 +1,6 @@
+# Requests sent while the runtime SBOM records which files the app uses.
+# Format: METHOD PATH [BODY]. Exercise the main code paths; no external network.
+GET /health
+GET /calc?expr=1%2B1
+POST /settings {"theme":"dark"}
+GET /token?user=alice

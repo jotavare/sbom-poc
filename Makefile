@@ -21,7 +21,7 @@ PORT_java   := 8004
 PORT_rust   := 8005
 PORT         = $(or $(PORT_$(APP)),8000)
 
-.PHONY: help apps port check-app test build run stop sbom sbom-compare validate licenses quality \
+.PHONY: help apps port check-app test build run stop sbom runtime pipeline sbom-compare validate licenses quality \
         summary test-all build-all sbom-all stop-all report lint infra-down clean
 
 help: ## Show targets
@@ -52,14 +52,19 @@ run: build ## Run the app on 127.0.0.1:<port> (localhost only: it is vulnerable!
 stop: ## Stop the app
 	-@docker rm -f poc-$(APP) >/dev/null 2>&1 || true
 
-sbom: build ## Generate SBOMs (Syft, Trivy, cdxgen, native + BuildKit's), check and validate them
+sbom: build ## Generate source/build/image SBOMs (Syft, Trivy, cdxgen, native, BuildKit) and check them
 	bash scripts/generate-sbom.sh $(APP) $(SBOM_DIR)
 	bash scripts/check-sbom.sh $(APP) $(SBOM_DIR)
-	mkdir -p $(SBOM_DIR)/$(APP)/reports
-	bash scripts/validate-sbom.sh $(APP) $(SBOM_DIR) > $(SBOM_DIR)/$(APP)/reports/validation.md
 
-validate: ## Validate every SBOM of the app against its spec (cyclonedx-cli, pyspdxtools)
-	@bash scripts/validate-sbom.sh $(APP) $(SBOM_DIR)
+runtime: ## Runtime SBOM: run the image under strace, send probes, keep packages actually used (after make sbom)
+	bash scripts/runtime-sbom.sh $(APP) $(SBOM_DIR)
+
+validate: ## Validate every SBOM against its spec; writes sbom/<app>/reports/validation.md
+	@mkdir -p $(SBOM_DIR)/$(APP)/reports
+	bash scripts/validate-sbom.sh $(APP) $(SBOM_DIR) > $(SBOM_DIR)/$(APP)/reports/validation.md
+	@cat $(SBOM_DIR)/$(APP)/reports/validation.md
+
+pipeline: sbom runtime validate summary ## Everything for one app: SBOMs, runtime SBOM, validation, reports
 
 sbom-compare: ## Compare the generators for the app (run `make sbom` first)
 	@SBOM_ROOT=$(SBOM_DIR) bash scripts/compare-sbom.sh $(APP)
@@ -70,9 +75,10 @@ licenses: ## Check dependency licences against policy/licenses.yaml (grant)
 quality: ## Score every SBOM of the app (sbomqs)
 	@bash scripts/score-sbom.sh $(APP) $(SBOM_DIR)
 
-summary: ## Write sbom/<app>/reports/summary.md (comparison, validation, licences, quality)
+summary: ## Write sbom/<app>/reports/summary.md (comparison, runtime, validation, licences, quality)
 	@mkdir -p $(SBOM_DIR)/$(APP)/reports
 	@{ SBOM_ROOT=$(SBOM_DIR) bash scripts/compare-sbom.sh $(APP); \
+	   if [[ -s $(SBOM_DIR)/$(APP)/reports/runtime.md ]]; then cat $(SBOM_DIR)/$(APP)/reports/runtime.md; fi; \
 	   if [[ -s $(SBOM_DIR)/$(APP)/reports/validation.md ]]; then cat $(SBOM_DIR)/$(APP)/reports/validation.md; \
 	   else bash scripts/validate-sbom.sh $(APP) $(SBOM_DIR); fi; \
 	   bash scripts/check-licenses.sh $(APP) $(SBOM_DIR); \
@@ -86,11 +92,11 @@ test-all: ## Run the tests of every app
 build-all: ## Build every app
 	@for a in $(APPS); do $(MAKE) --no-print-directory build APP=$$a; done
 
-sbom-all: ## Generate and check SBOMs for every app (parallel-safe: make -j sbom-all)
+sbom-all: ## Full pipeline for every app (parallel-safe: make -j sbom-all)
 	@$(MAKE) --no-print-directory --output-sync=target $(addprefix sbom-app-,$(APPS))
 
 sbom-app-%:
-	@$(MAKE) --no-print-directory sbom APP=$*
+	@$(MAKE) --no-print-directory pipeline APP=$*
 
 stop-all: ## Stop every app
 	@for a in $(APPS); do $(MAKE) --no-print-directory stop APP=$$a; done
