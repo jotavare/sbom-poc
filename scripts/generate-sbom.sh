@@ -18,12 +18,17 @@
 #   SBOM_SOURCE_VERSION  version recorded in the SBOM (default: git short SHA)
 #   SBOM_SUPPLIER        supplier recorded in the SBOM
 #
-# Output in <out-root>/<app>/:
-#   syft-{source,image}.{cdx,spdx}.json    Syft    (repo dir + built image)
-#   trivy-{source,image}.{cdx,spdx}.json   Trivy   (repo dir + built image)
-#   cdxgen-{source,image}.cdx.json         cdxgen  (repo dir + built image)
-#   native-source.cdx.json                 the language's own OWASP CycloneDX
-#                                          generator, run inside the Docker build
+# Output in <out-root>/<app>/ (stage in the name; see docs/SBOM-TYPES.md):
+#   <gen>-source.*   Source SBOM  (CISA "Source",   CycloneDX lifecycle pre-build)
+#   native-build.*   Build SBOM   (CISA "Build",    lifecycle build): the language's
+#                    own OWASP CycloneDX generator, run inside the Docker build
+#   <gen>-image.*    Analyzed SBOM (CISA "Analyzed", lifecycle post-build)
+# Formats: .cdx.json = CycloneDX (1.7 where the tool supports it),
+#          .spdx.json = SPDX 2.3, .spdx3.json = SPDX 3.0.1 (Syft, cdxgen)
+#   syft-{source,image}.{cdx,spdx,spdx3}.json
+#   trivy-{source,image}.{cdx,spdx}.json      (Trivy has no SPDX 3 output)
+#   cdxgen-{source,image}.{cdx,spdx3}.json
+#   native-build.cdx.json
 set -euo pipefail
 export LC_ALL=C
 
@@ -148,10 +153,16 @@ gen_syft() {
 
   step syft-source run_tool "${env[@]}" "$SYFT_IMAGE" scan -q dir:/src "${common[@]}" "${excludes[@]}" \
     --enrich python --enrich javascript --enrich golang \
-    -o cyclonedx-json=/out/syft-source.cdx.json -o spdx-json=/out/syft-source.spdx.json
+    -o cyclonedx-json=/out/syft-source.cdx.json -o spdx-json=/out/syft-source.spdx.json \
+    -o spdx-json@3.0=/out/syft-source.spdx3.json
 
-  step syft-image run_tool "$SYFT_IMAGE" scan -q docker-archive:/cache/image.tar "${common[@]}" \
-    -o cyclonedx-json=/out/syft-image.cdx.json -o spdx-json=/out/syft-image.spdx.json
+  # File digests: SHA-1 (SPDX 2.3 requires it for files) and SHA-512 (BSI
+  # TR-03183-2 requires SHA-512 for deployable components), besides SHA-256.
+  # (comma-separated: with spaces Syft keeps only SHA-1 and its SPDX 2.3 turns invalid)
+  step syft-image run_tool -e SYFT_FILE_METADATA_DIGESTS=sha1,sha256,sha512 \
+    "$SYFT_IMAGE" scan -q docker-archive:/cache/image.tar "${common[@]}" \
+    -o cyclonedx-json=/out/syft-image.cdx.json -o spdx-json=/out/syft-image.spdx.json \
+    -o spdx-json@3.0=/out/syft-image.spdx3.json
 }
 
 # --- Trivy ----------------------------------------------------------------------
@@ -240,13 +251,23 @@ gen_cdxgen() {
   step cdxgen-source run_tool "${env[@]}" -v "$CDXGEN_BIN":/usr/local/bin/cdxgen:ro \
     -v "$libdir":/opt/cdxgen-lib:ro -e LD_LIBRARY_PATH=/opt/cdxgen-lib \
     -v "$work":/work -w /work --entrypoint /usr/local/bin/cdxgen "poc-$APP:base" \
-    -r /work "${install[@]}" --spec-version 1.6 \
+    -r /work "${install[@]}" --spec-version 1.7 --format cyclonedx,spdx \
     --project-name "$NAME" --project-version "$VERSION" -o /out/cdxgen-source.cdx.json
 
   step cdxgen-image run_tool --network none -e CDXGEN_NO_BANNER=true -e FETCH_LICENSE=false \
     -v "$CDXGEN_BIN":/usr/local/bin/cdxgen:ro --entrypoint /usr/local/bin/cdxgen \
-    "$CDXGEN_RUNNER_IMAGE" -t docker /cache/image.tar --spec-version 1.6 \
+    "$CDXGEN_RUNNER_IMAGE" -t docker /cache/image.tar --spec-version 1.7 --format cyclonedx,spdx \
     --project-name "$NAME" --project-version "$VERSION" -o /out/cdxgen-image.cdx.json
+  # --format spdx writes SPDX 3.0.1 next to the CycloneDX file; the name depends
+  # on the -o name (x.cdx.json -> x.spdx.json; x.json -> x.spdx.json). Rename it
+  # to *.spdx3.json so it can't be mistaken for an SPDX 2.3 file.
+  local t f
+  for t in source image; do
+    for f in "$OUT_ABS/cdxgen-$t.spdx.json" "$OUT_ABS/cdxgen-$t.cdx.spdx.json"; do
+      [[ -s "$f" ]] && mv -f "$f" "$OUT_ABS/cdxgen-$t.spdx3.json"
+    done
+    [[ -s "$OUT_ABS/cdxgen-$t.spdx3.json" ]] || { echo "FAIL [$APP] cdxgen wrote no SPDX 3 file ($t)" >&2; return 1; }
+  done
 }
 
 # --- Native (language's own OWASP CycloneDX generator) -----------------------------
@@ -254,7 +275,7 @@ gen_cdxgen() {
 # manager and the real dependency resolution; exported via `sbom-export`.
 gen_native() {
   has_stage sbom-export || { log "native: no sbom-export stage, skipped"; return 0; }
-  step native export_stage sbom-export /native-source.cdx.json "$OUT_ABS"
+  step native export_stage sbom-export /native-build.cdx.json "$OUT_ABS"
 }
 
 for g in $GENERATORS; do
@@ -262,5 +283,6 @@ for g in $GENERATORS; do
   "gen_$g"
 done
 
+bash "$(dirname "$0")/label-lifecycle.sh" "$APP" "$OUT_ROOT"
 bash "$(dirname "$0")/make-views.sh" "$APP" "$OUT_ROOT"
 log "Done: $(find "$OUT_ABS" -maxdepth 1 -name '*.json' | wc -l) files in $OUT"

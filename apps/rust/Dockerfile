@@ -35,12 +35,12 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # --- sbom stage: native OWASP generator (cargo-cyclonedx) from Cargo metadata
 FROM base AS sbom
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo cyclonedx --format json --spec-version 1.5 --override-filename native-source.cdx \
-    && cp native-source.cdx.json /native-source.cdx.json
+    cargo cyclonedx --format json --spec-version 1.7 --override-filename native-build.cdx \
+    && cp native-build.cdx.json /native-build.cdx.json
 
-# --- sbom-export: `docker build --target sbom-export --output type=local,dest=<dir>`
+# --- sbom-export: copied out by scripts/generate-sbom.sh (docker create + docker cp)
 FROM scratch AS sbom-export
-COPY --from=sbom /native-source.cdx.json /
+COPY --from=sbom /native-build.cdx.json /
 
 # --- runtime stage (default): distroless with glibc, no shell, non-root ---
 # gcr.io/distroless/cc-debian13:nonroot pinned by digest (2026-11-17)

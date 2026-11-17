@@ -32,7 +32,7 @@ WORK="$DIR/reports/licenses"
 OUT="$DIR/reports/licenses.json"
 rm -rf "$WORK" && mkdir -p "$WORK"
 
-mapfile -t SBOMS < <(cd "$DIR" && ls -1 native-source.cdx.json *-source.cdx.json views/*-image-app.cdx.json 2> /dev/null | sort -u)
+mapfile -t SBOMS < <(cd "$DIR" && ls -1 native-build.cdx.json *-source.cdx.json views/*-image-app.cdx.json 2> /dev/null | sort -u)
 (( ${#SBOMS[@]} > 0 )) || { echo "error: no dependency SBOMs in $DIR" >&2; exit 1; }
 
 # --- normalise ------------------------------------------------------------------
@@ -121,7 +121,7 @@ echo "</details>"
 echo
 
 if [[ "${LICENSE_GATE:-0}" == "1" ]] && jq -e "$STATUS"'
-    [.run.targets[] | select(.source.ref == "native-source.cdx.json")
+    [.run.targets[] | select(.source.ref == "native-build.cdx.json")
      | .evaluation.findings.packages[]? | status | select(. == "violation")] | length > 0' "$OUT" > /dev/null; then
   echo "FAIL [$APP]: licence violation in the native SBOM" >&2
   exit 1

@@ -23,11 +23,11 @@ RUN python -m pytest -q tests
 FROM base AS sbom
 RUN python -m venv /opt/cdx && /opt/cdx/bin/pip install --root-user-action=ignore cyclonedx-bom==8.0.1 \
     && /opt/cdx/bin/cyclonedx-py environment "$(command -v python)" \
-       --output-format JSON --output-file /native-source.cdx.json
+       --output-format JSON --spec-version 1.7 --output-file /native-build.cdx.json
 
-# --- sbom-export: `docker build --target sbom-export --output type=local,dest=<dir>`
+# --- sbom-export: copied out by scripts/generate-sbom.sh (docker create + docker cp)
 FROM scratch AS sbom-export
-COPY --from=sbom /native-source.cdx.json /
+COPY --from=sbom /native-build.cdx.json /
 
 # --- runtime stage (default) ---
 FROM base AS runtime

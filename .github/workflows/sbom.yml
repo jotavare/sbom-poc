@@ -22,7 +22,7 @@ jobs:
   sbom:
     name: SBOM (${{ matrix.app }})
     runs-on: ubuntu-26.04
-    timeout-minutes: 45
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -57,8 +57,9 @@ jobs:
           restore-keys: trivy-${{ matrix.app }}-
 
       - name: Generate + check SBOMs (Syft, Trivy, cdxgen, native)
-        # each tool call is also limited to 10 min (STEP_TIMEOUT in generate-sbom.sh)
-        timeout-minutes: 25
+        # each tool call is also limited to 10 min (STEP_TIMEOUT in generate-sbom.sh);
+        # validation of large SPDX 3 files (JSON schema) can take several minutes
+        timeout-minutes: 50
         run: make sbom APP="$APP"
 
       - name: Compare, licences, quality

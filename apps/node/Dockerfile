@@ -16,12 +16,12 @@ RUN npm test
 # --- sbom stage: native OWASP generator (cyclonedx-npm) on the production dependency tree
 FROM base AS sbom
 RUN npm ci --omit=dev --ignore-scripts \
-    && npx --yes @cyclonedx/cyclonedx-npm@7.0.1 --omit dev --output-format JSON \
-       --output-file /native-source.cdx.json
+    && npx --yes @cyclonedx/cyclonedx-npm@7.0.1 --omit dev --output-format JSON --spec-version 1.7 \
+       --output-file /native-build.cdx.json
 
-# --- sbom-export: `docker build --target sbom-export --output type=local,dest=<dir>`
+# --- sbom-export: copied out by scripts/generate-sbom.sh (docker create + docker cp)
 FROM scratch AS sbom-export
-COPY --from=sbom /native-source.cdx.json /
+COPY --from=sbom /native-build.cdx.json /
 
 # --- runtime stage (default): production deps only ---
 FROM base AS runtime

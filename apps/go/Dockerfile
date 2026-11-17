@@ -28,11 +28,11 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     git init -q && git -c user.name=sbom -c user.email=sbom@localhost commit -q --allow-empty -m sbom \
     && git tag "v${APP_VERSION}" \
     && go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.12.0 \
-      app -json -std -licenses -assert-licenses -main . -output /native-source.cdx.json
+      app -json -std -licenses -assert-licenses -output-version 1.7 -main . -output /native-build.cdx.json
 
-# --- sbom-export: `docker build --target sbom-export --output type=local,dest=<dir>`
+# --- sbom-export: copied out by scripts/generate-sbom.sh (docker create + docker cp)
 FROM scratch AS sbom-export
-COPY --from=sbom /native-source.cdx.json /
+COPY --from=sbom /native-build.cdx.json /
 
 # --- runtime stage (default): distroless, no shell, non-root ---
 # gcr.io/distroless/static-debian13:nonroot pinned by digest (2026-11-17)

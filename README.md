@@ -87,7 +87,7 @@ To add an app: create `apps/<name>/` following the contract, add a port in the `
 | [Syft](https://github.com/anchore/syft) | `syft-source.*` | `syft-image.*` | CycloneDX + SPDX | pinned container |
 | [Trivy](https://github.com/aquasecurity/trivy) | `trivy-source.*` | `trivy-image.*` | CycloneDX + SPDX | pinned container |
 | [cdxgen](https://github.com/cdxgen/cdxgen) (OWASP CycloneDX) | `cdxgen-source.cdx.json` | `cdxgen-image.cdx.json` | CycloneDX | release binary (checksum-pinned); source: mounted into the app's build image (real toolchain); image: on a `docker save` tarball |
-| **Native** OWASP CycloneDX generator | `native-source.cdx.json` | – | CycloneDX | inside the app's Docker build (`sbom` stage) |
+| **Native** OWASP CycloneDX generator | `native-build.cdx.json` | – | CycloneDX | inside the app's Docker build (`sbom` stage) |
 | **BuildKit** `--sbom=true` (buildkit-syft-scanner) | – | `buildkit-image.spdx.json` (+ `buildkit-provenance.json`) | SPDX 2.3 | attestation attached to the image in the registry |
 
 **Security:** no tool gets the Docker socket. Images are scanned from a `docker save` tarball; cdxgen's image scan runs in a pinned container with `--network none`. (An earlier version mounted the socket into the vulnerable app's own build image for cdxgen: host-root-equivalent access for that image's install scripts.)

@@ -29,12 +29,14 @@ METRICS=(
   "  OS source pkgs (not compared)|$LIBS | map(select((.purl // \"\") | test(\"[?&]arch=source\"))) | length"
   "with licence|$LIBS | map(select((.licenses // []) | length > 0)) | length"
   "with hashes|$LIBS | map(select((.hashes // []) | length > 0)) | length"
+  "with SHA-512 (BSI)|$LIBS | map(select([(.hashes // [])[] | .alg] | index(\"SHA-512\"))) | length"
   "with CPE|$LIBS | map(select(.cpe)) | length"
   "with PURL|$LIBS | map(select(.purl)) | length"
   "File entries|[.components[]? | select(.type == \"file\")] | length"
   "Dependency edges|[(.dependencies // [])[] | (.dependsOn // [])[]] | length"
   "Root linked to deps|(.metadata.component[\"bom-ref\"]) as \$r | if \$r == null then \"no\" elif ([(.dependencies // [])[] | select(.ref == \$r) | (.dependsOn // [])[]] | length) > 0 then \"yes\" else \"no\" end"
   "Supplier set|if (.metadata.component.supplier.name // .metadata.supplier.name) then \"yes\" else \"no\" end"
+  "Lifecycle (stage)|[.metadata.lifecycles[]?.phase] | join(\",\") | if . == \"\" then \"–\" else . end"
   "CycloneDX spec|.specVersion"
 )
 
@@ -87,7 +89,10 @@ compare_target() {
   local app="$1" target="$2" gens=() files=()
   for g in "${GEN_ORDER[@]}"; do
     local f="$ROOT/$app/$g-$target.cdx.json"
-    [[ -s "$f" ]] && { gens+=("$g"); files+=("$f"); }
+    # the native generator's SBOM is a Build SBOM, compared with the source scans
+    local label="$g"
+    [[ "$g" == native && "$target" == source ]] && { f="$ROOT/$app/native-build.cdx.json"; label="native-build"; }
+    [[ -s "$f" ]] && { gens+=("$label"); files+=("$f"); }
   done
   local tmp; tmp=$(mktemp -d)
   if [[ "$target" == image && -s "$ROOT/$app/buildkit-image.spdx.json" ]]; then
@@ -96,7 +101,11 @@ compare_target() {
   fi
   (( ${#gens[@]} > 0 )) || { rm -rf "$tmp"; return 0; }
 
-  echo "## ${target^} SBOM"
+  if [[ "$target" == source ]]; then
+    echo "## Source SBOMs (pre-build) vs the Build SBOM (native-build)"
+  else
+    echo "## Image SBOMs: Analyzed (post-build) + BuildKit build attestation"
+  fi
   echo
   printf '| Metric |'; printf ' %s |' "${gens[@]}"; echo
   printf '|---|'; printf -- '---|%.0s' "${gens[@]}"; echo

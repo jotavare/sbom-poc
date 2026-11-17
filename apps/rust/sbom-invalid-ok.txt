@@ -1,2 +1,6 @@
 # <sbom file> <reason>: SBOMs known to fail validation (a generator bug), reported instead of hidden
 buildkit-image.spdx.json BuildKit SBOM scanner writes only SHA256 file checksums; SPDX 2.3 requires a SHA1 checksum for every file
+syft-source.spdx3.json Syft's SPDX 3.0.1 gives a NoAssertionLicense two creationInfo values (SHACL: more than 1 value)
+syft-image.spdx3.json Syft's SPDX 3.0.1 gives a NoAssertionLicense two creationInfo values (SHACL: more than 1 value)
+cdxgen-source.spdx3.json cdxgen's SPDX 3.0.1 uses an invalid profile ("extension") and a createdBy that is not an Agent (SHACL)
+cdxgen-image.spdx3.json cdxgen's SPDX 3.0.1 uses an invalid profile ("extension") and a createdBy that is not an Agent (SHACL)

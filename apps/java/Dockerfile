@@ -9,6 +9,7 @@ COPY pom.xml .
 RUN --mount=type=cache,target=/root/.m2 mvn -B -q dependency:go-offline \
     && mvn -B -q org.cyclonedx:cyclonedx-maven-plugin:2.9.3:makeBom \
          -DoutputFormat=json -DoutputName=bom -DoutputDirectory=/sbom-native -DincludeTestScope=false \
+         -DschemaVersion=1.7 \
     && cp -r /root/.m2/repository /m2-repository
 COPY src ./src
 
@@ -29,11 +30,11 @@ RUN --mount=type=cache,target=/root/.m2 mvn -B -q package -DskipTests
 # --- sbom stage: native OWASP generator (cyclonedx-maven-plugin, run in `base`):
 #     Maven's own resolved dependency tree, runtime scopes only (no test deps)
 FROM base AS sbom
-RUN cp /sbom-native/bom.json /native-source.cdx.json
+RUN cp /sbom-native/bom.json /native-build.cdx.json
 
-# --- sbom-export: `docker build --target sbom-export --output type=local,dest=<dir>`
+# --- sbom-export: copied out by scripts/generate-sbom.sh (docker create + docker cp)
 FROM scratch AS sbom-export
-COPY --from=sbom /native-source.cdx.json /
+COPY --from=sbom /native-build.cdx.json /
 
 # --- runtime stage (default): JRE only, non-root ---
 # eclipse-temurin:17-jre pinned by digest (2026-11-17); Ubuntu-based

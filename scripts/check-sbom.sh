@@ -32,9 +32,11 @@ jq -e '.index_digest | startswith("sha256:")' "$DIR/artifact.json" > /dev/null \
 
 expected_files() {
   case "$1" in
-    syft|trivy) echo "$1-source.cdx.json $1-source.spdx.json $1-image.cdx.json $1-image.spdx.json" ;;
-    cdxgen)     echo "cdxgen-source.cdx.json cdxgen-image.cdx.json" ;;
-    native)     grep -qiE '^FROM .* AS sbom-export$' "$A/Dockerfile" && echo "native-source.cdx.json" ;;
+    syft)       echo "syft-source.cdx.json syft-source.spdx.json syft-source.spdx3.json"
+                echo "syft-image.cdx.json syft-image.spdx.json syft-image.spdx3.json" ;;
+    trivy)      echo "trivy-source.cdx.json trivy-source.spdx.json trivy-image.cdx.json trivy-image.spdx.json" ;;
+    cdxgen)     echo "cdxgen-source.cdx.json cdxgen-source.spdx3.json cdxgen-image.cdx.json cdxgen-image.spdx3.json" ;;
+    native)     grep -qiE '^FROM .* AS sbom-export$' "$A/Dockerfile" && echo "native-build.cdx.json" ;;
     *)          fail "unknown generator '$1'" ;;
   esac
 }
@@ -77,7 +79,7 @@ done
 # --- negative markers: dev/test dependencies must not ship ------------------------------
 if [[ -s "$A/sbom-reject.txt" ]]; then
   shopt -s nullglob
-  for f in "$DIR"/*-image.cdx.json "$DIR"/views/*-image-app.cdx.json "$DIR"/native-source.cdx.json; do
+  for f in "$DIR"/*-image.cdx.json "$DIR"/views/*-image-app.cdx.json "$DIR"/native-build.cdx.json; do
     found=$(purls "$f" | sed -E 's/@[^@/]*$//')     # type/name, version dropped
     while read -r reject; do
       [[ -z "$reject" || "$reject" == \#* ]] && continue
@@ -87,9 +89,19 @@ if [[ -s "$A/sbom-reject.txt" ]]; then
   done
 fi
 
+# --- every CycloneDX SBOM declares its stage (CISA "Generation Context") ---------------
+for f in "$DIR"/*.cdx.json; do
+  jq -e '(.metadata.lifecycles // []) | length > 0' "$f" > /dev/null \
+    || fail "$(basename "$f") has no metadata.lifecycles (run scripts/label-lifecycle.sh)"
+done
+
 # --- SPDX files have packages; image SBOMs have OS packages (even distroless) ---------
 for f in "$DIR"/*.spdx.json; do
   jq -e '.packages | length > 0' "$f" > /dev/null || fail "$(basename "$f") has no packages"
+done
+for f in "$DIR"/*.spdx3.json; do
+  jq -e '[.["@graph"][]? | select(.type == "software_Package")] | length > 0' "$f" > /dev/null \
+    || fail "$(basename "$f") has no software_Package elements"
 done
 for f in "$DIR"/*-image.cdx.json; do
   jq -e '[.. | objects | select(has("purl")) | .purl // "" | select(test("^pkg:(deb|apk|rpm)/"))] | length > 0' \
