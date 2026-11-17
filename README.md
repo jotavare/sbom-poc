@@ -75,10 +75,10 @@ make infra-down              # remove the local registry + BuildKit builder
 
 | App | Stack | Runtime image | What's interesting for SBOMs | Port |
 |---|---|---|---|---|
-| [`python`](apps/python) | Flask 2.0.3, gunicorn | `python:3.12-slim` (Debian) | `requirements.txt` with every transitive dep pinned; CPython compiled into `/usr/local` by the base image | 8001 |
-| [`node`](apps/node) | Express 4.17.1 | `node:24-slim` (Debian) | 4 direct deps become 65 installed; the base image adds npm, corepack and yarn | 8002 |
+| [`python`](apps/python) | Flask 2.0.3, gunicorn | distroless `python3` (Debian 13, Python 3.13) | `requirements.txt` with every transitive dep pinned; a venv built with Debian's own Python, copied into distroless | 8001 |
+| [`node`](apps/node) | Express 4.17.1 | distroless `nodejs24` | 4 direct deps become 65 installed; no npm, corepack or yarn in the image | 8002 |
 | [`go`](apps/go) | `net/http` | distroless `static` | Static binary: tools read the module list **embedded in the binary** | 8003 |
-| [`java`](apps/java) | Spring Boot 2.6.1, Log4j 2.14.1 | `eclipse-temurin:17-jre` (Ubuntu) | Fat JAR with **nested JARs**; `pom.xml` needs Maven to resolve | 8004 |
+| [`java`](apps/java) | Spring Boot 2.6.1, Log4j 2.14.1 | distroless `java17` | Fat JAR with **nested JARs**; `pom.xml` needs Maven to resolve | 8004 |
 | [`rust`](apps/rust) | tiny_http | distroless `cc` | Binary built with **`cargo auditable`**, which embeds the crate list | 8005 |
 
 Each planted flaw is tagged `VULN:` in the code: Log4Shell (`java`), PyYAML `yaml.load` (`python`), lodash prototype pollution and `eval` (`node`), user-controlled regex on regex 1.5.4 (`rust`), dgrijalva/jwt-go (`go`), plus command injection and SSRF in every app.
@@ -98,7 +98,7 @@ apps/<app>/
   .dockerignore
 ```
 
-Every app listens on **8080** in its container and serves `GET /health`. Base images are pinned by digest and every dependency to an exact version. To add an app: follow the contract, add a port in the `Makefile` and a matrix entry in the workflows.
+Every app listens on **8080** in its container and serves `GET /health`. **Every runtime image is distroless** (`gcr.io/distroless/*-debian13:nonroot`): no shell, no package manager, non-root. Build tools stay in the build stages. Base images are pinned by digest and every dependency to an exact version. To add an app: follow the contract, add a port in the `Makefile` and a matrix entry in the workflows.
 
 ## Generators
 
@@ -142,22 +142,22 @@ Every app listens on **8080** in its container and serves `GET /health`. Base im
 | java | 0/60 | 60/60 | 29/60 |
 | python | no graph (`requirements.txt` is flat); only native has 12 links | | |
 
-**Most of what ships never runs** (runtime SBOM):
+**Most of what ships never ran, so every image is now distroless** (runtime SBOM, before → after the switch):
 
 | App | Language packages used | OS packages used |
 |---|---|---|
-| python | 13 / 15 (`pip`, `packaging` unused) | 3 / 87 |
-| node | 69 / 214 (**the 145 unused are exactly npm + corepack** from the base image) | 2 / 88 |
-| java | 30 / 31 (class-loading log) | 2 / 140 |
-| go, rust | all (static binaries: compiled-in modules count as used) | 0 / 6, 2 / 14 |
+| python | 13 / 15 (`pip`, `packaging` unused) | 3 / 87 → **5 / 38** |
+| node | 69 / 214 → **67 / 68** (the 145 unused were exactly npm + corepack from the slim image) | 2 / 88 → **4 / 14** |
+| java | 30 / 31 (class-loading log) | 2 / 140 → **3 / 25** |
+| go, rust | all (static binaries: compiled-in modules count as used) | 0 / 6, 2 / 14 (distroless from the start) |
 
-**Blind spots:** the Python base image compiles CPython into `/usr/local`: its standard library and `libpython` (119 files) belong to no package, so package-based SBOMs can't describe them precisely.
+Distroless also removes the shell: the planted command injection (`sh -c "ping …"`) is still in the code, and SAST will find it, but in the running containers it can't start a shell.
 
-**Licences:** after normalising expressions, python has one real violation (`chardet`, **LGPL**); the node image ships `npm` (Artistic-2.0) it never runs. cdxgen and Trivy both write `jakarta.annotation-api`'s dual licence wrong; the native generator gets it right. ScanCode found licences metadata doesn't declare: **Werkzeug ships Ubuntu font files** (Ubuntu Font Licence, CC-BY) for its debugger page.
+**Blind spots:** with `python:3.12-slim`, CPython was compiled into `/usr/local`: 119 files of its standard library and `libpython` belonged to no package. Distroless Python comes from Debian packages, so that blind spot is gone: what's left in every image is `ca-certificates.crt` (generated at build time) and one motd script.
+
+**Licences:** after normalising expressions, python has one real violation (`chardet`, **LGPL**); node now passes, since the npm it shipped (Artistic-2.0) is gone. cdxgen and Trivy both write `jakarta.annotation-api`'s dual licence wrong; the native generator gets it right. ScanCode found licences metadata doesn't declare: **Werkzeug ships Ubuntu font files** (Ubuntu Font Licence, CC-BY) for its debugger page.
 
 **Formats and validation:** BuildKit's SPDX 2.3 lacks the SHA-1 file checksums SPDX 2.3 requires; Syft's and cdxgen's SPDX 3.0.1 fail the official SHACL shapes (all recorded as known generator bugs). Syft's digest setting must be comma-separated: with spaces it silently dropped SHA-256 and broke its SPDX 2.3.
-
-**Open decision:** remove npm from the Node runtime image (distroless Node), now backed by the runtime SBOM.
 
 ## Speed
 

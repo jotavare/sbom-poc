@@ -243,10 +243,10 @@ footer { color: var(--muted); font-size: 0.82rem; }
       <table>
         <thead><tr><th>Area</th><th>Finding</th></tr></thead>
         <tbody>
-          <tr><td>Runtime</td><td>node: 69 of 214 npm packages run; the 145 unused are exactly npm and corepack from the base image</td></tr>
-          <tr><td>Runtime</td><td>OS packages that run: 2–3 of 87–140 in every image</td></tr>
+          <tr><td>Runtime</td><td>node: 69 of 214 npm packages ran; the 145 unused were exactly npm and corepack from the base image. So every image is now distroless: node ships 68 npm packages, 67 of which run</td></tr>
+          <tr><td>Runtime</td><td>OS packages that ran: 2–3 of 87–140 per image before distroless; now 3–5 of 14–38</td></tr>
           <tr><td>Graph</td><td>java: links matching the build SBOM: Trivy 60/60, cdxgen 29/60, Syft 0/60</td></tr>
-          <tr><td>Blind spots</td><td>python: 119 files of the compiled CPython in <code>/usr/local</code> belong to no package</td></tr>
+          <tr><td>Blind spots</td><td>python: 119 files of the compiled CPython in <code>/usr/local</code> belonged to no package; gone with distroless, whose Python comes from Debian packages</td></tr>
           <tr><td>Licences</td><td>python: <code>chardet</code> is LGPL; Werkzeug ships Ubuntu font files (Ubuntu Font Licence, CC-BY) that no metadata declares</td></tr>
           <tr><td>Formats</td><td>BuildKit's SPDX 2.3 lacks required SHA-1 file checksums; Syft's and cdxgen's SPDX 3.0.1 fail the official SHACL shapes</td></tr>
         </tbody>
