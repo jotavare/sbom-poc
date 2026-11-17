@@ -9,6 +9,7 @@ set -euo pipefail
 export LC_ALL=C
 
 ROOT="${SBOM_ROOT:-sbom}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 GEN_ORDER=(syft trivy cdxgen native)
 MAX_DIFF_ROWS="${MAX_DIFF_ROWS:-40}"
 
@@ -80,7 +81,14 @@ spdx_as_cdx() {
          licenses: (if (.licenseDeclared // "NOASSERTION") | test("^(NOASSERTION|NONE)$") then [] else [{expression: .licenseDeclared}] end),
          hashes: [.checksums[]? | {alg: .algorithm, content: .checksumValue}],
          cpe: ([.externalRefs[] | select(.referenceCategory == "SECURITY") | .referenceLocator][0])}],
-       dependencies: []}' "$1"
+       # SPDX relationships -> links: "A DEPENDS_ON B" is A->B; "A DEPENDENCY_OF B" is B->A.
+       # The root is what the document DESCRIBES (for BuildKit: the image).
+       dependencies: ([.relationships[]?
+           | if .relationshipType == "DEPENDS_ON" then {from: .spdxElementId, to: .relatedSpdxElement}
+             elif .relationshipType == "DEPENDENCY_OF" then {from: .relatedSpdxElement, to: .spdxElementId}
+             else empty end]
+         | group_by(.from) | map({ref: .[0].from, dependsOn: [.[].to] | unique}))}
+     | .metadata.component = {"bom-ref": ([input.relationships[]? | select(.relationshipType == "DESCRIBES") | .relatedSpdxElement][0])}' "$1" "$1"
 }
 
 human_size() { numfmt --to=iec --suffix=B "$(stat -c%s "$1")"; }
@@ -121,6 +129,35 @@ compare_target() {
   printf '| File size |'; for f in "${files[@]}"; do printf ' %s |' "$(human_size "$f")"; done; echo
   echo
   (( ${#gens[@]} > 1 )) || { rm -rf "$tmp"; return 0; }
+
+  # Dependency graph per generator; for source SBOMs, links compared with the
+  # Build SBOM (native-build), the package manager's own tree = ground truth.
+  local native_idx=-1
+  for i in "${!gens[@]}"; do [[ "${gens[$i]}" == native-build ]] && native_idx=$i; done
+  for i in "${!gens[@]}"; do
+    jq -c -L "$SCRIPT_DIR" 'include "graph"; graph_metrics' "${files[$i]}" > "$tmp/${gens[$i]}.graph"
+  done
+  echo "**Dependency graph** (runtime-scope packages; the app itself excluded)"
+  echo
+  if (( native_idx >= 0 )); then
+    echo "| Generator | Direct deps of the app | Reachable from the app | Max depth | Links | Links also in native-build |"
+    echo "|---|---|---|---|---|---|"
+  else
+    echo "| Generator | Direct deps of the app | Reachable from the app | Max depth | Links |"
+    echo "|---|---|---|---|---|"
+  fi
+  for i in "${!gens[@]}"; do
+    local row
+    row=$(jq -r --arg g "${gens[$i]}" '"| \($g) | \(.direct) | \(.reachable) | \(.depth) | \(.edges | length) |"' "$tmp/${gens[$i]}.graph")
+    if (( native_idx >= 0 )); then
+      row+=$(jq -r -n --slurpfile a "$tmp/${gens[$i]}.graph" --slurpfile n "$tmp/${gens[$native_idx]}.graph" '
+        ($n[0].edges | length) as $total
+        | ([$a[0].edges[] | select(. as $e | $n[0].edges | index($e))] | length) as $hit
+        | " \($hit) of \($total)\(if $total > 0 then " (" + (($hit * 100 / $total) | floor | tostring) + "%)" else "" end) |"')
+    fi
+    echo "$row"
+  done
+  echo
 
   # Which generator found which package (only packages not found by all)
   for i in "${!gens[@]}"; do packages "${files[$i]}" > "$tmp/${gens[$i]}"; done
