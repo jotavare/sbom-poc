@@ -1,0 +1,3 @@
+# Paths inside the image whose files ScanCode scans (one per line)
+# The fat JAR is extracted first (its nested JARs too)
+/srv/poc-java.jar

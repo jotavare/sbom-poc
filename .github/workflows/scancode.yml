@@ -1,0 +1,47 @@
+name: ScanCode (one-off)
+
+# Licence + copyright scan of each app's dependencies with ScanCode Toolkit.
+# Slow, so it only runs when started by hand (Actions -> ScanCode -> Run workflow,
+# or: gh workflow run scancode.yml --ref <branch>).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scancode:
+    name: ScanCode (${{ matrix.app }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        # go and rust ship compiled binaries only: no dependency sources to scan
+        app: [python, node, java]
+    env:
+      APP: ${{ matrix.app }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build image
+        timeout-minutes: 20
+        run: make build APP="$APP"
+
+      - name: ScanCode
+        timeout-minutes: 60
+        run: |
+          make scancode APP="$APP"
+          cat "sbom/$APP/reports/scancode.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: scancode-${{ matrix.app }}
+          path: sbom/${{ matrix.app }}/reports/scancode.*
+          if-no-files-found: error
+          retention-days: 30

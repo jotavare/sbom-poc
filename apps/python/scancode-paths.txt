@@ -1,0 +1,2 @@
+# Paths inside the image whose files ScanCode scans (one per line)
+/usr/local/lib/python3.12/site-packages

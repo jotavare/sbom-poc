@@ -21,7 +21,7 @@ PORT_java   := 8004
 PORT_rust   := 8005
 PORT         = $(or $(PORT_$(APP)),8000)
 
-.PHONY: help apps port check-app test build run stop sbom runtime unmanaged pipeline sbom-compare validate licenses quality \
+.PHONY: help apps port check-app test build run stop sbom runtime unmanaged scancode pipeline sbom-compare validate licenses quality \
         summary test-all build-all sbom-all stop-all report lint infra-down clean
 
 help: ## Show targets
@@ -62,6 +62,9 @@ runtime: ## Runtime SBOM: run the image under strace, send probes, keep packages
 unmanaged: ## Executables/libraries in the image that no package claims (SBOM blind spots)
 	bash scripts/unmanaged-files.sh $(APP) $(SBOM_DIR)
 
+scancode: build ## One-off: ScanCode licences + copyrights of the app's dependencies (slow)
+	bash scripts/scancode.sh $(APP) $(SBOM_DIR)
+
 validate: ## Validate every SBOM against its spec; writes sbom/<app>/reports/validation.md
 	@mkdir -p $(SBOM_DIR)/$(APP)/reports
 	bash scripts/validate-sbom.sh $(APP) $(SBOM_DIR) > $(SBOM_DIR)/$(APP)/reports/validation.md
@@ -83,6 +86,7 @@ summary: ## Write sbom/<app>/reports/summary.md (comparison, runtime, validation
 	@{ SBOM_ROOT=$(SBOM_DIR) bash scripts/compare-sbom.sh $(APP); \
 	   if [[ -s $(SBOM_DIR)/$(APP)/reports/runtime.md ]]; then cat $(SBOM_DIR)/$(APP)/reports/runtime.md; fi; \
 	   if [[ -s $(SBOM_DIR)/$(APP)/reports/unmanaged.md ]]; then cat $(SBOM_DIR)/$(APP)/reports/unmanaged.md; fi; \
+	   if [[ -s $(SBOM_DIR)/$(APP)/reports/scancode.md ]]; then cat $(SBOM_DIR)/$(APP)/reports/scancode.md; fi; \
 	   if [[ -s $(SBOM_DIR)/$(APP)/reports/validation.md ]]; then cat $(SBOM_DIR)/$(APP)/reports/validation.md; \
 	   else bash scripts/validate-sbom.sh $(APP) $(SBOM_DIR); fi; \
 	   bash scripts/check-licenses.sh $(APP) $(SBOM_DIR); \
