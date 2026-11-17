@@ -161,10 +161,14 @@ Every app listens on **8080** in its container and serves `GET /health`. Base im
 
 ## Speed
 
-Full CI run: about 6 minutes for all five apps.
+Full CI run: about 6 minutes for all five apps (Java, the slowest, 528 s → 343 s after the last round).
 
 | Change | Effect |
 |---|---|
+| All builds on one shared BuildKit builder (`scripts/buildkit.sh`) | tests, image and SBOM-stage builds reuse each other's layers instead of downloading and compiling twice (Java's generate step 214 s → 136 s) |
+| Static strace cached by its Dockerfile hash | runtime SBOM step 60–70 s → 3–11 s (building strace was almost all of it) |
+| Validation batched: one container per validator | instead of ~20 container starts per app |
+| Trivy DB cache keyed by day | Java's ~920 MB saved once a day, not every run |
 | cdxgen release binary, no tool image | the first CI run had hung 10+ min on `docker build --output type=local`; that pattern is no longer used anywhere |
 | `jsonschema-rs` for large SPDX 3 files | Java's validation: ~24 min → seconds |
 | Persistent Trivy cache (+ `actions/cache`) | Trivy's Java DB downloaded once (was ~190 s per scan) |
