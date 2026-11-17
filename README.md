@@ -1,6 +1,6 @@
 # DevSecOps SBOM PoC
 
-A proof of concept for software supply-chain transparency, built around **five small, deliberately vulnerable apps** (Python, Node.js, Go, Java, Rust). Iteration 1 covers **SBOMs end to end**: every SBOM stage the standards define, five generators, validation, licences, quality, and what actually runs. Later iterations add one class of security check each (CVE scanning, secrets, SAST, signing, DAST…).
+A proof of concept for software supply-chain transparency, built around **five small, deliberately vulnerable apps** (Python, Node.js, Go, Java, Rust). Iteration 1 covers **SBOMs end to end**: every SBOM stage the standards define, five generators, validation, licences, quality, and what actually runs. Iteration 2 **scans those SBOMs for vulnerabilities** with three scanners and gates the build. Later iterations add one class of security check each (secrets, SAST, signing, DAST…).
 
 > ⚠️ **Every app in `apps/` is intentionally insecure** (injection flaws, SSRF, unsafe deserialization, weak crypto, old dependencies with known CVEs). Run them on localhost only. Never deploy them.
 
@@ -14,7 +14,7 @@ A proof of concept for software supply-chain transparency, built around **five s
 | # | Iteration | Status |
 |---|---|---|
 | 1 | Apps + SBOMs for all 4 stages (source, build, image, runtime) + validation, licences, quality, graph, blind spots | ✅ |
-| 2 | SBOM vulnerability scan (Grype + Trivy) + gate on critical/high | proposed |
+| 2 | SBOM vulnerability scan (Grype, Trivy, OSV-Scanner) + gate on critical/high with a fix; distroless images | ✅ |
 | 3 | Secrets scanning (Gitleaks or TruffleHog) | proposed |
 | 4 | SAST (Semgrep / Opengrep) | proposed |
 | 5 | Dockerfile + CI hardening (Hadolint, zizmor, actionlint) | proposed |
@@ -42,7 +42,7 @@ Requirements: Docker (with buildx), `make`, `jq`.
 
 ```bash
 make help                    # all targets
-make pipeline APP=node       # everything for one app (the CI job): build, SBOMs, runtime, unmanaged, validate, summary
+make pipeline APP=node       # everything for one app (the CI job): build, SBOMs, runtime, unmanaged, validate, vulns, summary, gate
 make -j3 sbom-all            # the same for every app, in parallel
 make report                  # combine all app summaries into sbom/SBOM-REPORT.md
 
@@ -53,6 +53,8 @@ make sbom APP=java           # stage 1-3 SBOMs + checks
 make runtime APP=java        # stage 4: runtime SBOM (after make sbom)
 make unmanaged APP=java      # files in the image no package claims
 make validate APP=java       # schema validation (cyclonedx-cli, pyspdxtools, spdx3-validate)
+make vulns APP=java          # vulnerability scan of the SBOMs (Grype, Trivy, OSV-Scanner)
+make vuln-gate APP=java      # fail on critical/high with a fix that isn't accepted
 make sbom-compare APP=java   # generator comparison + dependency graph
 make licenses APP=java       # licence policy (grant)
 make quality APP=java        # SBOM quality scores (sbomqs)
@@ -93,6 +95,8 @@ apps/<app>/
   sbom-reject.txt         packages that must NOT ship: dev/test deps (optional)
   sbom-expect-skip.txt    documented exceptions: "<sbom file> <purl|*> <reason>" (optional)
   sbom-invalid-ok.txt     known generator bugs that fail validation: "<file> <reason>"
+  vuln-expect.txt         planted CVEs the scanners must find: "<CVE> <note>"
+  vuln-accept.txt         accepted risks for the gate: "<package | prefix* | ID> <expires> <reason>"
   runtime-probes.txt      requests sent while recording the runtime SBOM
   scancode-paths.txt      paths in the image ScanCode scans (python, node, java)
   .dockerignore
@@ -119,6 +123,7 @@ Every app listens on **8080** in its container and serves `GET /health`. **Every
 | Check | What fails or is reported |
 |---|---|
 | `check-sbom.sh` (fails the build) | missing generator output, image without digest or BuildKit attestation, a CycloneDX SBOM without a stage, a missing vulnerable marker (unless excused with a reason), a **dev/test dependency in what ships**, an image SBOM without OS packages |
+| `scan-vulns.sh` + `vuln-gate.sh` (fails the build) | a critical/high vulnerability **with a fix** in the image (union of 3 scanners × 3 image SBOMs) that isn't accepted in `vuln-accept.txt` (accepts expire), or a planted CVE no scanner finds. Report: scanner × SBOM matrix, agreement, planted CVEs, fix-first list (KEV, ran at runtime, severity, EPSS) |
 | `validate-sbom.sh` (fails the build) | invalid CycloneDX (`cyclonedx-cli`), SPDX 2.3 (`pyspdxtools`), SPDX 3.0.1 (`spdx3-validate` schema + SHACL; large files: official JSON schema with `jsonschema-rs`). Known generator bugs are shown as ⚠️ |
 | Comparison + graph | packages found by each generator (after normalising spelling), dependency graph vs `native-build` |
 | Licences (`grant`) | dependency licences vs [`policy/licenses.yaml`](policy/licenses.yaml): violation / unknown / ignored, after normalising licence expressions |
@@ -159,6 +164,20 @@ Distroless also removes the shell: the planted command injection (`sh -c "ping �
 
 **Formats and validation:** BuildKit's SPDX 2.3 lacks the SHA-1 file checksums SPDX 2.3 requires; Syft's and cdxgen's SPDX 3.0.1 fail the official SHACL shapes (all recorded as known generator bugs). Syft's digest setting must be comma-separated: with spaces it silently dropped SHA-256 and broke its SPDX 2.3.
 
+**Vulnerabilities (iteration 2): the SBOM you scan decides what you find.** Three scanners on three image SBOMs of the same image (python, findings):
+
+| SBOM | Grype | Trivy | OSV-Scanner |
+|---|---|---|---|
+| Syft's | **351** | 40 | 41 |
+| Trivy's | 40 | **351** | 41 |
+| cdxgen's | 157 | 40 | **163** |
+
+- **OS packages only match in the scanner's own family.** Debian publishes advisories per *source* package (`krb5`), SBOMs list binary packages (`libgssapi-krb5-2`). Trivy records the source in its own property, Syft in a purl qualifier (`upstream=`), cdxgen not at all; each scanner reads only its own way. OSV-Scanner reads Debian packages only with `distro=debian-13` (cdxgen), not `debian-13.7` (Syft, Trivy). Language packages match everywhere: the purl is enough.
+- So the gate takes the **union** of all scanners on all image SBOMs. Every planted CVE (Log4Shell, Spring4Shell, PyYAML, lodash…) is found by all three scanners, except on cdxgen's Rust SBOM (cdxgen can't read `cargo auditable` data).
+- **False positives:** OSV-Scanner reads Syft's Go stdlib version `go1.27.4` instead of the purl's `1.27.4` and reports all 164 Go stdlib advisories since 2021.
+- **Prioritising:** java has 133 critical/high findings, 101 in packages that actually ran (runtime SBOM) and 6 in CISA KEV; most Debian findings have no fix yet, so they're reported, not gated.
+- **The gate found a real one:** `pip` shipped in the Python venv with a fixable high CVE, and the runtime SBOM showed it never runs, so it's removed instead of accepted. Everything else blocking is planted and accepted until 2027-05-17.
+
 ## Speed
 
 Full CI run: about 6 minutes for all five apps (Java, the slowest, 528 s → 343 s after the last round).
@@ -190,6 +209,8 @@ scripts/
   runtime-sbom.sh          stage 4: runtime SBOM (strace + probes)
   unmanaged-files.sh       files no package claims
   validate-sbom.sh         spec validation (+ spdx3_schema_check.py)
+  scan-vulns.sh            vulnerability scan of the SBOMs (vulns.jq normalises findings)
+  vuln-gate.sh             the vulnerability gate
   compare-sbom.sh          generator comparison + graph (graph.jq)
   check-licenses.sh        licence normalisation + policy (grant)
   score-sbom.sh            quality per format (sbomqs)

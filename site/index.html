@@ -134,9 +134,9 @@ footer { color: var(--muted); font-size: 0.82rem; }
 <body>
 <main>
   <header>
-    <span class="eyebrow">devsecops-sbom-poc · iteration 1</span>
+    <span class="eyebrow">devsecops-sbom-poc · iterations 1–2</span>
     <h1>SBOM Pipeline Map</h1>
-    <p>How one push turns five deliberately vulnerable apps into SBOMs for every stage, checks them, and reports what they show. Each CI job runs the same <code>make pipeline</code> you can run locally.</p>
+    <p>How one push turns five deliberately vulnerable apps into SBOMs for every stage, checks them, scans them for vulnerabilities, and reports what they show. Each CI job runs the same <code>make pipeline</code> you can run locally.</p>
   </header>
 
   <section aria-labelledby="stages">
@@ -220,10 +220,21 @@ footer { color: var(--muted); font-size: 0.82rem; }
         <div class="meta"><span class="chip gate">fails the build</span><span class="chip">cyclonedx-cli</span><span class="chip">pyspdxtools</span><span class="chip">spdx3-validate</span><span class="chip">jsonschema-rs</span></div>
       </div></li>
       <li class="step"><div class="rail"><span class="dot">9</span></div><div class="card">
+        <div class="title"><h3>Vulnerabilities</h3><span class="script">scan-vulns.sh</span></div>
+        <p>Three scanners read the three image SBOMs and the build SBOM, never the image. Findings are mapped to one CVE per package, compared, checked against the planted CVEs, and ranked: known exploited (KEV), ran at runtime, severity, EPSS.</p>
+        <div class="meta"><span class="chip">Grype</span><span class="chip">Trivy</span><span class="chip">OSV-Scanner</span></div>
+        <div class="out">→ <code>reports/vulns.md</code>, <code>vulns/</code> (raw JSON, SARIF)</div>
+      </div></li>
+      <li class="step"><div class="rail"><span class="dot">10</span></div><div class="card">
         <div class="title"><h3>Report</h3><span class="script">summary.sh</span></div>
         <p>Compares the generators and their dependency graphs, checks licences against the policy, and scores SBOM quality; writes the app's report by stage.</p>
         <div class="meta"><span class="chip">report</span><span class="chip">grant</span><span class="chip">sbomqs</span></div>
         <div class="out">→ <code>reports/summary.md</code>, CI job summary</div>
+      </div></li>
+      <li class="step"><div class="rail"><span class="dot">11</span></div><div class="card">
+        <div class="title"><h3>Vulnerability gate</h3><span class="script">vuln-gate.sh</span></div>
+        <p>Fails on a critical or high vulnerability with a fix that isn't accepted (each acceptance has a reason and an expiry date), or a planted CVE no scanner found. Runs last, so the report always exists.</p>
+        <div class="meta"><span class="chip gate">fails the build</span></div>
       </div></li>
     </ol>
   </section>
@@ -248,13 +259,15 @@ footer { color: var(--muted); font-size: 0.82rem; }
           <tr><td>Graph</td><td>java: links matching the build SBOM: Trivy 60/60, cdxgen 29/60, Syft 0/60</td></tr>
           <tr><td>Blind spots</td><td>python: 119 files of the compiled CPython in <code>/usr/local</code> belonged to no package; gone with distroless, whose Python comes from Debian packages</td></tr>
           <tr><td>Licences</td><td>python: <code>chardet</code> is LGPL; Werkzeug ships Ubuntu font files (Ubuntu Font Licence, CC-BY) that no metadata declares</td></tr>
+          <tr><td>Vulnerabilities</td><td>Each scanner finds the Debian OS vulnerabilities only in its own generator's SBOM (python: 351 vs 40), because Debian advisories are per source package and each generator records that differently; the gate uses all of them</td></tr>
+          <tr><td>Vulnerabilities</td><td>java: 133 critical/high, 101 in packages that ran, 6 in CISA KEV; the gate also caught a fixable CVE in pip, which the runtime SBOM showed never runs, so pip was removed</td></tr>
           <tr><td>Formats</td><td>BuildKit's SPDX 2.3 lacks required SHA-1 file checksums; Syft's and cdxgen's SPDX 3.0.1 fail the official SHACL shapes</td></tr>
         </tbody>
       </table>
     </div>
   </section>
 
-  <footer>Iteration 1 of the DevSecOps PoC. Next: CVE scanning of these SBOMs (Grype, Trivy).</footer>
+  <footer>Iterations 1–2 of the DevSecOps PoC. Next: secrets scanning.</footer>
 </main>
 </body>
 </html>
