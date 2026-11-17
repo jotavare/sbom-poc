@@ -1,0 +1,6 @@
+# actionlint 1.7.12 predates the ubuntu-26.04 hosted-runner label; declare it
+# so the runner-label check accepts it (GitHub provides it: see run logs,
+# "Runner Image: ubuntu-26.04").
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
