@@ -125,6 +125,7 @@ flowchart LR
 | B05 | Artifact signing | Cryptographically signs images/binaries. Only effective when **verified** at deploy (see P01) | 🧾 | No | Cosign (Sigstore), Notation (Notary Project), GPG | Cosign keyless | 🔜 |
 | B06 | Attestation | Signed statements about an artifact (its SBOM, scan results) | 🧾 | No | cosign attest, in-toto, Witness | cosign attest | 🔜 |
 | B07 | Build provenance (SLSA Build track) | Signed record of how, where and from which source an artifact was built. Provenance alone (L1–L2) records the build; resisting a compromised build platform needs Build L3 | 🧾 | No | actions/attest (attest-build-provenance), slsa-github-generator, Tekton Chains | BuildKit `--provenance=mode=max` (unsigned); signing later | 🟡 provenance generated, not yet signed |
+| B08 | Malware scanning | Scans images and artifacts for **known malware** (a compromised dependency dropping a backdoor, a trojanised binary). Different from CVE scanning, which only matches known-vulnerable versions | 🔍 | No | ClamAV, YARA rules, VirusTotal (free tier, upload!), Trivy (secrets/misconfig only, no malware) | ClamAV | ⬜ |
 
 ## 4. Test / Staging
 
@@ -138,6 +139,7 @@ flowchart LR
 | T06 | LLM / AI app security testing | Prompt injection, jailbreaks, data leakage (OWASP LLM Top 10). Only relevant if the app uses an LLM | 🔍 | Yes | garak, PyRIT (microsoft/PyRIT), promptfoo, DeepTeam, Purple Llama CyberSecEval | — | 📄 |
 | T07 | **IAST** | Agent inside the app watches execution during tests. Exact code location, but only sees code paths the tests exercise; also sees things DAST can't (tainted flows, weak crypto) | 🔍 | Yes | DongTai (low activity), Contrast Assess (paid), Black Duck Seeker (paid), Datadog Code Security IAST (paid) | — | 📄 |
 | T08 | Penetration testing | Manual attack by a human; finds business-logic flaws and chained exploits | 🔍 | Yes | Burp, ZAP, Metasploit, sqlmap (tooling); PTaaS e.g. Cobalt (paid) | — | 📄 |
+| T09 | AI-driven pentest *(emerging)* | An AI agent attacks the running app autonomously and tries to validate exploits | 🔍 | Yes | Strix, PentestGPT; commercial AI pentest services (paid) | — | ⬜ |
 
 ## 5. Deploy
 
@@ -146,6 +148,7 @@ flowchart LR
 | P01 | Admission control | Blocks non-compliant workloads at deploy time (unsigned images, privileged pods) | 🛡️ | Cluster | Kyverno, OPA Gatekeeper, Kubewarden, Sigstore policy-controller | Kyverno on kind | ⬜ |
 | P02 | **KSPM** / cluster scanning | Scans a live cluster against CIS/NSA benchmarks; RBAC issues | 🔍 | Cluster | Kubescape, kube-bench, Trivy Operator, Polaris | Kubescape on kind | ⬜ |
 | P03 | Compliance as code / host hardening | Checks hosts and containers against CIS benchmarks | 🔍 | Host | OpenSCAP, Lynis, docker-bench-security, InSpec (licence: commercial for business use) | docker-bench-security | ⬜ |
+| P04 | Network policy / segmentation | Limits which workloads may talk to which (Kubernetes NetworkPolicy, L7 rules); contains a breach | 🛡️ | Cluster | Cilium (eBPF), Calico, Kubernetes NetworkPolicy | — | ⬜ |
 
 ## 6. Production
 
@@ -192,6 +195,58 @@ flowchart TB
 | K13 | Software Supply Chain Security | SSCS | Umbrella over C05–C08 and B01–B07 | see those rows | 🔜 |
 
 ---
+
+## 8b. AI-assisted security *(emerging)*
+
+A fast-growing category (2025–2026): AI agents and models that review code, audit, pentest, or scan AI-agent supply chains. Treat as **emerging**: results vary from run to run, most need paid model API keys, and they send code to a third party. A good PoC experiment: the apps' planted flaws are tagged `VULN:`, so classic SAST and AI reviewers can be scored against a known answer key.
+
+| ID | Check | What it does | Tool options (licence) | In PoC |
+|---|---|---|---|---|
+| A01 | AI code review on PRs | An LLM reviews each pull request's diff for vulnerabilities | Claude Code Security Review (MIT, needs Anthropic API key), OpenAI Codex Security (Apache-2.0, needs OpenAI key) | ⬜ |
+| A02 | Agentic security audit | A coding agent runs a multi-phase audit of a repo, with independently verified findings | Cloudflare security-audit-skill (MIT) | ⬜ |
+| A03 | AI-driven pentest | See T09 | Strix (Apache-2.0) | ⬜ |
+| A04 | AI agent skill / MCP supply chain | Scans **agent skills and MCP servers** (like the skill repos you might install into Claude Code) for malicious patterns | NVIDIA SkillSpector (Apache-2.0); BLA (MIT, single unknown author: review before use) | ⬜ |
+| A05 | LLM red teaming | See T06 | Microsoft PyRIT (MIT), garak, promptfoo, DeepTeam | 📄 |
+
+## 8c. Tools seen in the wild (reference only)
+
+Tool lists that circulate on social media, checked against GitHub on 2026-11-17 (all repos real, active, open source). Listed so you know they exist and where each fits; "PoC fit" says whether it matters for *this* PoC.
+
+**"12 GitHub repos to secure your app" (LinkedIn)**
+
+| Tool | Licence | What it is | Catalogue row | PoC fit |
+|---|---|---|---|---|
+| Strix | Apache-2.0 | AI agent that pentests a running app | T09 / A03 | Later (AI experiment) |
+| Cloudflare security-audit-skill | MIT | Coding-agent skill for multi-phase security audits | A02 | Later (AI experiment) |
+| Trivy | Apache-2.0 | Scanner: CVEs, SBOM, IaC, secrets | B01–B03, C09 | ✅ in use |
+| Nuclei | MIT | Template-based scanner for running apps | T02 | Iteration 8 |
+| TruffleHog | AGPL-3.0 | Secrets scanner that **verifies** whether a found key still works | C02 | Iteration 3 (alternative to Gitleaks) |
+| NVIDIA SkillSpector | Apache-2.0 | Scanner for AI agent skills | A04 | Not for the apps; relevant for your own Claude Code skills |
+| Semgrep | LGPL-2.1 | SAST | C01 | Iteration 4 |
+| OpenAI Codex Security | Apache-2.0 | AI vulnerability finding/fixing CLI | A01 | Later (needs paid key) |
+| ClamAV | GPL-2.0 | Malware scanner | B08 | Possible (image malware scan) |
+| Claude Code Security Review | MIT | AI PR review GitHub Action | A01 | Later (needs paid key) |
+| BLA (Blind LLM Agents) | MIT | Defence MCP server for JS/TS/Electron | A04 | ⚠️ Not recommended: young, single unknown author |
+| Microsoft PyRIT | MIT | LLM red teaming | T06 / A05 | Not applicable (no LLM in the apps) |
+
+**"The 4 C's of Kubernetes Security" (Turf Dev)**
+
+The 4 C's (Code, Container, Cluster, Cloud) come from the Kubernetes documentation's [Overview of Cloud Native Security](https://kubernetes.io/docs/concepts/security/overview/): each layer builds on the security of the outer one. This PoC covers **Code** and **Container**; **Cluster** and **Cloud** need a Kubernetes cluster / cloud account.
+
+| Layer | Tool | Licence | Role in the post | Catalogue row | PoC fit |
+|---|---|---|---|---|---|
+| Code | Gitleaks / TruffleHog | MIT / AGPL-3.0 | API key found | C02 | Iteration 3 |
+| Code | Opengrep | LGPL-2.1 | Risky patterns (Semgrep fork) | C01 | Iteration 4 (alternative to Semgrep) |
+| Code | Renovate | AGPL-3.0 | Old library flagged / update PRs | C06 | Possible (alternative to Dependabot) |
+| Container | Trivy | Apache-2.0 | Critical CVE found | B02–B03 | ✅ in use; iteration 2 |
+| Container | Cosign | Apache-2.0 | Image signed | B05 | Iteration 7 |
+| Container | Falco | Apache-2.0 | Shell opened: alert (runtime) | R03 | Later (needs runtime) |
+| Cluster | kube-bench | Apache-2.0 | CIS checks | P02 | Later (needs a cluster, e.g. kind) |
+| Cluster | Kyverno | Apache-2.0 | Unsigned image blocked | P01 | Later (pairs with Cosign) |
+| Cluster | Cilium | Apache-2.0 | Cross-team call blocked | P04 | Later (needs a cluster) |
+| Cloud | Checkov | Apache-2.0 | Public bucket flagged (IaC) | C09 | Possible (no IaC in the PoC yet) |
+| Cloud | Trivy (IaC) | Apache-2.0 | Open port flagged | C09 | Possible |
+| Cloud | Prowler | Apache-2.0 | IAM too broad | K02 | 📄 needs a cloud account |
 
 ## 9. The testing family compared
 
