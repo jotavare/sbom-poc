@@ -55,6 +55,7 @@ stop: ## Stop the app
 sbom: build ## Generate SBOMs (Syft, Trivy, cdxgen, native + BuildKit's), check and validate them
 	bash scripts/generate-sbom.sh $(APP) $(SBOM_DIR)
 	bash scripts/check-sbom.sh $(APP) $(SBOM_DIR)
+	mkdir -p $(SBOM_DIR)/$(APP)/reports
 	bash scripts/validate-sbom.sh $(APP) $(SBOM_DIR) > $(SBOM_DIR)/$(APP)/reports/validation.md
 
 validate: ## Validate every SBOM of the app against its spec (cyclonedx-cli, pyspdxtools)
