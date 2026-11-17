@@ -6,7 +6,9 @@
 #              It exits 0 even when SHACL fails, so its output is checked instead.
 #              SHACL is slow on large files (Syft's 1.5 MB go image SBOM: ~7.5 min
 #              on an old laptop), so files above SPDX3_SHACL_MAX_BYTES get the
-#              official JSON schema only (check-jsonschema) unless SPDX3_FULL=1.
+#              official JSON schema only (jsonschema-rs, scripts/spdx3_schema_check.py)
+#              unless SPDX3_FULL=1. (The pure-Python check-jsonschema needed ~24 min
+#              for Java's 15 MB file in CI; jsonschema-rs takes under a second.)
 # Prints a Markdown table; exits non-zero if any SBOM is invalid, unless the
 # file is listed in apps/<app>/sbom-invalid-ok.txt ("<file> <reason>": a known
 # generator bug, reported instead of hidden).
@@ -22,7 +24,7 @@ CDX_CLI_IMAGE="cyclonedx/cyclonedx-cli:0.33.1@sha256:252c2e26f468c25fea1e63ecde1
 PY_IMAGE="python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b"
 SPDX_TOOLS_VERSION="0.8.5"
 SPDX3_VALIDATE_VERSION="0.0.7"
-CHECK_JSONSCHEMA_VERSION="0.39.0"
+JSONSCHEMA_RS_VERSION="0.61.2"
 SPDX3_SCHEMA_URL="https://spdx.org/schema/3.0.1/spdx-json-schema.json"
 SPDX3_SCHEMA_SHA256="582c64e809d5b3ef9bd0c4de13a32391b47b0284a3e8d199569fb96f649234b1"
 SPDX3_SHACL_MAX_BYTES="${SPDX3_SHACL_MAX_BYTES:-250000}"
@@ -31,11 +33,12 @@ ALLOW="apps/$APP/sbom-invalid-ok.txt"
 LOGDIR="$DIR/reports/validation"
 rm -rf "$LOGDIR" && mkdir -p "$LOGDIR" "$ROOT/.cache"
 ROOT_ABS="$(cd "$ROOT" && pwd)"
+SCRIPTS_ABS="$(cd "$(dirname "$0")" && pwd)"
 
 # Python validators installed once into the cache (parallel-safe)
 PYSPDX="$ROOT/.cache/spdx-tools-$SPDX_TOOLS_VERSION"
 PYSPDX3="$ROOT/.cache/spdx3-validate-$SPDX3_VALIDATE_VERSION"
-PYJSONSCHEMA="$ROOT/.cache/check-jsonschema-$CHECK_JSONSCHEMA_VERSION"
+PYJSONSCHEMA="$ROOT/.cache/jsonschema-rs-$JSONSCHEMA_RS_VERSION"
 SPDX3_SCHEMA="$ROOT/.cache/spdx-3.0.1-json-schema.json"
 (
   flock 9
@@ -45,9 +48,9 @@ SPDX3_SCHEMA="$ROOT/.cache/spdx-3.0.1-json-schema.json"
       || { echo "error: SPDX 3.0.1 schema checksum mismatch" >&2; exit 1; }
   fi
   for spec in "$PYSPDX spdx-tools==$SPDX_TOOLS_VERSION" "$PYSPDX3 spdx3-validate==$SPDX3_VALIDATE_VERSION" \
-              "$PYJSONSCHEMA check-jsonschema==$CHECK_JSONSCHEMA_VERSION"; do
+              "$PYJSONSCHEMA jsonschema-rs==$JSONSCHEMA_RS_VERSION"; do
     read -r dir pkg <<< "$spec"
-    [[ -d "$dir/bin" ]] && continue
+    [[ -d "$dir" ]] && continue
     docker run --rm --security-opt label=disable --user "$(id -u):$(id -g)" -e HOME=/tmp \
       -v "$ROOT_ABS/.cache":/cache "$PY_IMAGE" \
       pip install -q --disable-pip-version-check --target "/cache/$(basename "$dir")" "$pkg" > /dev/null
@@ -58,7 +61,8 @@ py_tool() {  # <cache dir> <file> <python args...>: run a cached Python tool on 
   local pkgs="$1" f="$2"; shift 2
   docker run --rm --security-opt label=disable --user "$(id -u):$(id -g)" -e HOME=/tmp \
     -e PYTHONPATH="/cache/$(basename "$pkgs")" \
-    -v "$ROOT_ABS/.cache":/cache:ro -v "$(cd "$(dirname "$f")" && pwd)":/w:ro "$PY_IMAGE" \
+    -v "$ROOT_ABS/.cache":/cache:ro -v "$(cd "$(dirname "$f")" && pwd)":/w:ro \
+    -v "$SCRIPTS_ABS":/scripts:ro "$PY_IMAGE" \
     python "$@"
 }
 
@@ -83,7 +87,7 @@ for f in "$DIR"/*.cdx.json "$DIR"/views/*.cdx.json "$DIR"/*.spdx.json "$DIR"/*.s
       grep -qE "^ERROR:|Violation" "$log" && ok=0 || ok=1
     else
       fmt="$fmt (schema only: $((size / 1024)) KB, SHACL with SPDX3_FULL=1)"
-      py_tool "$PYJSONSCHEMA" "$f" -m check_jsonschema --schemafile /cache/spdx-3.0.1-json-schema.json \
+      py_tool "$PYJSONSCHEMA" "$f" /scripts/spdx3_schema_check.py /cache/spdx-3.0.1-json-schema.json \
         "/w/$(basename "$f")" > "$log" 2>&1 && ok=1 || ok=0
     fi
   else
