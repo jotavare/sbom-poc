@@ -189,9 +189,9 @@ compare_target() {
   rm -rf "$tmp"
 }
 
+# COMPARE_TARGETS: which tables to print (default both); NO_APP_HEADING=1 omits
+# the "# <app>" heading (summary.sh places the tables under stage headings).
 for app in "${APPS[@]}"; do
-  echo "# $app"
-  echo
-  compare_target "$app" source
-  compare_target "$app" image
+  [[ "${NO_APP_HEADING:-0}" == 1 ]] || { echo "# $app"; echo; }
+  for t in ${COMPARE_TARGETS:-source image}; do compare_target "$app" "$t"; done
 done

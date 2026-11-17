@@ -81,16 +81,9 @@ licenses: ## Check dependency licences against policy/licenses.yaml (grant)
 quality: ## Score every SBOM of the app (sbomqs)
 	@bash scripts/score-sbom.sh $(APP) $(SBOM_DIR)
 
-summary: ## Write sbom/<app>/reports/summary.md (comparison, runtime, validation, licences, quality)
+summary: ## Write sbom/<app>/reports/summary.md: all results organised by SBOM stage
 	@mkdir -p $(SBOM_DIR)/$(APP)/reports
-	@{ SBOM_ROOT=$(SBOM_DIR) bash scripts/compare-sbom.sh $(APP); \
-	   if [[ -s $(SBOM_DIR)/$(APP)/reports/runtime.md ]]; then cat $(SBOM_DIR)/$(APP)/reports/runtime.md; fi; \
-	   if [[ -s $(SBOM_DIR)/$(APP)/reports/unmanaged.md ]]; then cat $(SBOM_DIR)/$(APP)/reports/unmanaged.md; fi; \
-	   if [[ -s $(SBOM_DIR)/$(APP)/reports/scancode.md ]]; then cat $(SBOM_DIR)/$(APP)/reports/scancode.md; fi; \
-	   if [[ -s $(SBOM_DIR)/$(APP)/reports/validation.md ]]; then cat $(SBOM_DIR)/$(APP)/reports/validation.md; \
-	   else bash scripts/validate-sbom.sh $(APP) $(SBOM_DIR); fi; \
-	   bash scripts/check-licenses.sh $(APP) $(SBOM_DIR); \
-	   bash scripts/score-sbom.sh $(APP) $(SBOM_DIR); } > $(SBOM_DIR)/$(APP)/reports/summary.md
+	@bash scripts/summary.sh $(APP) $(SBOM_DIR) > $(SBOM_DIR)/$(APP)/reports/summary.md
 	@echo "wrote $(SBOM_DIR)/$(APP)/reports/summary.md"
 
 # --- every app ----------------------------------------------------------------
