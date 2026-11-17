@@ -1,0 +1,4 @@
+# Package URLs every SBOM (source + image, Syft + Trivy) must contain.
+# Only direct deps here: Syft does not resolve transitive Maven deps from pom.xml
+# (snakeyaml@1.29 comes in via Spring, so Syft source SBOMs miss it; see docs/SBOM-REPORT.md).
+pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1

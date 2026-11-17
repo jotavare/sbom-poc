@@ -1,0 +1,93 @@
+name: SBOM
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sbom-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sbom:
+    name: SBOM (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [python, node, go, java, rust]
+    env:
+      APP: ${{ matrix.app }}
+      SBOM_SOURCE_VERSION: ${{ github.sha }}
+    # CI runs the same `make` targets as local runs (see Makefile and scripts/)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Tests (Dockerfile test stage)
+        run: make test APP="$APP"
+
+      - name: Generate + check SBOMs (Syft, Trivy, cdxgen, native)
+        run: make sbom APP="$APP"
+
+      - name: Compare, licences, quality
+        run: |
+          make summary APP="$APP"
+          cat "sbom/$APP/reports/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload SBOMs and reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-${{ matrix.app }}
+          path: |
+            sbom/${{ matrix.app }}/
+            sbom/.cache/${{ matrix.app }}/*.log
+          if-no-files-found: error
+          retention-days: 30
+
+  report:
+    name: Combined report
+    needs: sbom
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download all SBOM artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: sbom-*
+          path: artifacts
+
+      - name: Build docs/SBOM-REPORT.md
+        run: |
+          mkdir -p sbom
+          for d in artifacts/sbom-*; do
+            app="${d#artifacts/sbom-}"
+            # artifacts keep the common root: <app>/... (and .cache/<app>/*.log)
+            if [[ -d "$d/$app" ]]; then cp -r "$d/$app" sbom/; else cp -r "$d" "sbom/$app"; fi
+          done
+          make report
+          cat docs/SBOM-REPORT.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload combined report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-report
+          path: docs/SBOM-REPORT.md
+          if-no-files-found: error
+          retention-days: 30

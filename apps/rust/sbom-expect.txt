@@ -1,0 +1,3 @@
+# Package URLs every SBOM (source + image, Syft + Trivy) must contain.
+pkg:cargo/regex@1.5.4
+pkg:cargo/smallvec@1.6.0

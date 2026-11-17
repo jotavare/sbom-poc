@@ -1,0 +1,25 @@
+# Deliberately OLD versions with known CVEs, so scanners have findings.
+# Every transitive dependency is pinned: Flask 2.0.3 breaks with Werkzeug 3.x.
+# Verified to install on python:3.12-slim (2026-11-16).
+
+# Web framework (Flask CVE-2023-30861; Werkzeug CVE-2023-25577, CVE-2024-34069)
+Flask==2.0.3
+Werkzeug==2.0.3
+Jinja2==3.0.3
+MarkupSafe==2.1.5
+itsdangerous==2.0.1
+click==8.0.4
+
+# HTTP client (requests CVE-2023-32681; urllib3 CVE-2023-43804; idna CVE-2024-3651)
+requests==2.25.1
+urllib3==1.26.5
+idna==2.10
+chardet==4.0.0
+certifi==2026.10.23
+
+# YAML (PyYAML CVE-2020-14343, critical)
+PyYAML==5.3.1
+
+# App server (current, no known CVEs)
+gunicorn==22.0.0
+packaging==24.2

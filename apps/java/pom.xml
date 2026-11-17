@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Deliberately OLD versions with known CVEs, so scanners have findings. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!-- Spring Boot 2.6.1: spring-beans 5.3.13 (Spring4Shell CVE-2022-22965),
+       snakeyaml 1.29 (CVE-2022-1471), jackson-databind 2.13.0, tomcat-embed 9.0.55 -->
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>2.6.1</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>poc</groupId>
+  <artifactId>poc-java</artifactId>
+  <version>0.1.0</version>
+  <name>poc-java</name>
+  <description>Deliberately vulnerable Spring Boot API (DevSecOps PoC)</description>
+
+  <properties>
+    <java.version>17</java.version>
+    <!-- Log4Shell (CVE-2021-44228, CVSS 10.0) -->
+    <log4j2.version>2.14.1</log4j2.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-core</artifactId>
+      <version>${log4j2.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>poc-java</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>
