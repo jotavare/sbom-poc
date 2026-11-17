@@ -69,6 +69,14 @@ jobs:
           key: trivy-${{ matrix.app }}-${{ steps.day.outputs.day }}
           restore-keys: trivy-${{ matrix.app }}-
 
+      # Grype + Trivy vulnerability DBs (shared by all apps), keyed by day
+      - name: Cache vulnerability DBs
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: sbom/.cache/vulndb
+          key: vulndb-${{ steps.day.outputs.day }}
+          restore-keys: vulndb-
+
       - name: Generate + check SBOMs (Syft, Trivy, cdxgen, native, BuildKit)
         # each tool call is also limited to 10 min (STEP_TIMEOUT in generate-sbom.sh)
         timeout-minutes: 30
@@ -82,11 +90,19 @@ jobs:
         timeout-minutes: 20
         run: make validate APP="$APP"
 
+      - name: Vulnerability scan of the SBOMs (Grype, Trivy, OSV-Scanner)
+        timeout-minutes: 20
+        run: make vulns APP="$APP"
+
       - name: Compare, licences, quality
         timeout-minutes: 10
         run: |
           make summary APP="$APP"
           cat "sbom/$APP/reports/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      # after the summary, so the report exists even when the gate fails
+      - name: Vulnerability gate (critical/high with a fix, not accepted)
+        run: make vuln-gate APP="$APP"
 
       - name: Upload SBOMs and reports
         if: always()

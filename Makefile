@@ -21,7 +21,7 @@ PORT_java   := 8004
 PORT_rust   := 8005
 PORT         = $(or $(PORT_$(APP)),8000)
 
-.PHONY: help apps port check-app test build run stop sbom runtime unmanaged scancode pipeline sbom-compare validate licenses quality \
+.PHONY: help apps port check-app test build run stop sbom runtime unmanaged scancode pipeline sbom-compare validate vulns vuln-gate licenses quality \
         summary test-all build-all sbom-all stop-all report lint infra-down clean
 
 help: ## Show targets
@@ -70,7 +70,13 @@ validate: ## Validate every SBOM against its spec; writes sbom/<app>/reports/val
 	bash scripts/validate-sbom.sh $(APP) $(SBOM_DIR) > $(SBOM_DIR)/$(APP)/reports/validation.md
 	@cat $(SBOM_DIR)/$(APP)/reports/validation.md
 
-pipeline: sbom runtime unmanaged validate summary ## Everything for one app: SBOMs, runtime SBOM, validation, reports
+vulns: ## Scan the SBOMs for vulnerabilities (Grype, Trivy, OSV-Scanner); writes sbom/<app>/reports/vulns.md
+	bash scripts/scan-vulns.sh $(APP) $(SBOM_DIR)
+
+vuln-gate: ## Fail on critical/high vulnerabilities with a fix that aren't accepted (after `make vulns`)
+	@bash scripts/vuln-gate.sh $(APP) $(SBOM_DIR)
+
+pipeline: sbom runtime unmanaged validate vulns summary vuln-gate ## Everything for one app: SBOMs, runtime SBOM, validation, vulnerabilities, reports
 
 sbom-compare: ## Compare the generators for the app (run `make sbom` first)
 	@SBOM_ROOT=$(SBOM_DIR) bash scripts/compare-sbom.sh $(APP)

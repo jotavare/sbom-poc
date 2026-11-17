@@ -1,0 +1,6 @@
+# Planted vulnerabilities the scanners must find: "<CVE> <note>".
+# The build fails if no scanner finds one on the analyzed image SBOM.
+CVE-2020-8203 lodash 4.17.15: prototype pollution
+CVE-2021-23337 lodash 4.17.15: command injection via template
+CVE-2022-23540 jsonwebtoken 8.5.1: no algorithm allow-list
+CVE-2021-3749 axios 0.21.1: ReDoS

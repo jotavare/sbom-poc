@@ -15,7 +15,7 @@ HERE="$(dirname "$0")"
 R="$DIR/reports"
 
 section() { [[ -s "$1" ]] && cat "$1" || { echo "_Not generated yet: run \`make $2 APP=$APP\`._"; echo; }; }
-demote() { sed -E 's/^## /#### /'; }   # tool reports use "##"; nest them under the stage headings
+demote() { sed -E 's/^## /#### /; s/^### /##### /'; }   # tool reports use "##"; nest them under the stage headings
 
 echo "# $APP"
 echo
@@ -92,6 +92,7 @@ section "$R/runtime.md" runtime | demote
 echo "### Checks across all stages"
 echo
 section "$R/validation.md" validate | demote
+section "$R/vulns.md" vulns | demote
 bash "$HERE/check-licenses.sh" "$APP" "$ROOT" | demote
 bash "$HERE/score-sbom.sh" "$APP" "$ROOT" | demote
 if [[ -s "$R/scancode.md" ]]; then demote < "$R/scancode.md"

@@ -1,0 +1,274 @@
+#!/usr/bin/env bash
+# Iteration 2: vulnerability scan of the SBOMs (no image or source access needed:
+# the SBOM is the input, which is the point of having one).
+#
+#   Scanners  Grype, Trivy (`trivy sbom`), OSV-Scanner: three databases
+#             (Anchore's, Aqua's, osv.dev), so their disagreements show.
+#   SBOMs     stage 3 image SBOMs from Syft, Trivy and cdxgen, and the stage 2
+#             native build SBOM: does the generator change what is found?
+#   Output    sbom/<app>/vulns/<scanner>-<sbom>.json (raw), findings.json
+#             (normalised, see vulns.jq), grype-syft-image.sarif, and
+#             sbom/<app>/reports/vulns.md:
+#               - findings per scanner and SBOM
+#               - scanner agreement on the image
+#               - planted CVEs (apps/<app>/vuln-expect.txt) each scanner found
+#               - what to fix first: KEV, runs (runtime SBOM), severity, EPSS
+#               - the gate
+#
+# What counts for the gate is the UNION of every scanner on every image SBOM
+# (stage 3). No single pair sees everything: Debian advisories are per source
+# package, and each generator records it differently (Trivy: its own property,
+# Syft: a purl "upstream=" qualifier, cdxgen: not at all); OSV-Scanner only
+# reads "distro=debian-13" (cdxgen), not "debian-13.7" (Syft, Trivy).
+#
+# Gate (fails the build): a critical or high vulnerability WITH A FIX in that
+# union, unless its package or ID is accepted in apps/<app>/vuln-accept.txt:
+#     <package without version | package prefix* | vulnerability ID> <expires YYYY-MM-DD> <reason>
+# Expired entries no longer apply. Vulnerabilities without a fix are reported,
+# not gated: nothing can be done about them but accept or remove the package.
+# Also fails if no scanner finds a planted CVE (the pipeline would be blind).
+# This script only reports and writes the verdict to sbom/<app>/vulns/gate.status;
+# `make vuln-gate` (scripts/vuln-gate.sh) fails on it, after the summary is written.
+#
+# Usage: scripts/scan-vulns.sh <app> [out-root]
+#   VULN_SKIP_SCAN=1  reuse the raw scanner output (rebuild the report and verdict only)
+set -euo pipefail
+export LC_ALL=C
+
+APP="${1:?usage: scan-vulns.sh <app> [out-root]}"
+ROOT="${2:-sbom}"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+DIR="$ROOT/$APP"
+OUT="$DIR/vulns"
+R="$DIR/reports"
+APPDIR="apps/$APP"
+DB="${VULN_DB_DIR:-$ROOT/.cache/vulndb}"          # shared by all apps; one download per day
+GATE_SBOM="syft-image"                  # must exist; SARIF is written for it
+SBOMS="${VULN_SBOMS:-syft-image trivy-image cdxgen-image native-build}"
+SCANNERS="grype trivy osv"
+TIMEOUT="${VULN_TIMEOUT:-600}"
+
+GRYPE_IMAGE="${GRYPE_IMAGE:-anchore/grype:v0.121.3@sha256:13113eeceab017260370cf540e1d25442c59665fd07d1b09b66d63bb0c282887}"
+TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb}"
+OSV_IMAGE="${OSV_IMAGE:-ghcr.io/google/osv-scanner:v2.7.1@sha256:a70ffffc2bfd33482953e5d6b64c6fcdb30239717a07b0f0d3ab2859ce3e4cde}"
+
+[[ -s "$DIR/$GATE_SBOM.cdx.json" ]] || { echo "error: $DIR/$GATE_SBOM.cdx.json missing (make sbom APP=$APP)" >&2; exit 1; }
+mkdir -p "$OUT/logs" "$R" "$DB/grype" "$DB/trivy"
+DIR_ABS="$(cd "$DIR" && pwd)"; OUT_ABS="$(cd "$OUT" && pwd)"; DB_ABS="$(cd "$DB" && pwd)"
+
+run() {
+  timeout "$TIMEOUT" docker run --rm --security-opt label=disable \
+    --user "$(id -u):$(id -g)" --tmpfs /tmp:mode=1777,size=4g -e HOME=/tmp \
+    -v "$DIR_ABS":/sbom:ro -v "$OUT_ABS":/out -v "$DB_ABS":/db "$@"
+}
+GRYPE_ENV=(-e GRYPE_DB_CACHE_DIR=/db/grype -e GRYPE_CHECK_FOR_APP_UPDATE=false)
+
+# --- 1. databases: updated once, under a lock (parallel `make -j` runs share them) ---
+t0=$SECONDS
+[[ "${VULN_SKIP_SCAN:-}" == 1 ]] || (
+
+  flock 9
+  run "${GRYPE_ENV[@]}" "$GRYPE_IMAGE" db update > "$OUT/logs/grype-db.log" 2>&1
+  run "$TRIVY_IMAGE" --cache-dir /db/trivy image --download-db-only --no-progress > "$OUT/logs/trivy-db.log" 2>&1
+) 9> "$DB/lock"
+echo "vulnerability databases ready ($((SECONDS - t0)) s)"
+
+# --- 2. scans: the three scanners run in parallel, each over every SBOM ---
+scan() {
+  local scanner="$1" s rc
+  for s in $SBOMS; do
+    [[ -s "$DIR/$s.cdx.json" ]] || continue
+    local log="$OUT/logs/$scanner-$s.log" t=$SECONDS
+    rc=0
+    case "$scanner" in
+      grype)
+        local sarif=(); [[ "$s" == "$GATE_SBOM" ]] && sarif=(-o "sarif=/out/grype-$s.sarif")
+        run "${GRYPE_ENV[@]}" -e GRYPE_DB_AUTO_UPDATE=false "$GRYPE_IMAGE" \
+          "sbom:/sbom/$s.cdx.json" -o "json=/out/grype-$s.json" "${sarif[@]}" > "$log" 2>&1 || rc=$? ;;
+      trivy)
+        run "$TRIVY_IMAGE" --cache-dir /db/trivy sbom --skip-db-update --skip-java-db-update \
+          --scanners vuln --format json -o "/out/trivy-$s.json" "/sbom/$s.cdx.json" > "$log" 2>&1 || rc=$? ;;
+      osv)
+        # exit 1 = vulnerabilities found; uses the osv.dev API (package names + versions)
+        run "$OSV_IMAGE" scan source -L "/sbom/$s.cdx.json" --format json \
+          --output-file "/out/osv-$s.json" > "$log" 2>&1 || rc=$?
+        (( rc == 1 )) && rc=0 ;;
+    esac
+    if (( rc != 0 )); then
+      echo "error: $scanner on $s.cdx.json failed (exit $rc), see $log" >&2
+      rm -f "$OUT/$scanner-$s.json"
+    else
+      echo "$scanner $s: $((SECONDS - t)) s"
+    fi
+  done
+}
+if [[ "${VULN_SKIP_SCAN:-}" != 1 ]]; then
+  pids=()
+  for sc in $SCANNERS; do scan "$sc" & pids+=($!); done
+  for p in "${pids[@]}"; do wait "$p" || true; done
+fi
+
+# --- 3. normalise: one finding per (scanner, SBOM, package, vulnerability) ---
+for f in "$OUT"/{grype,trivy,osv}-*.json; do
+  [[ -s "$f" ]] || continue
+  b="$(basename "$f" .json)"
+  jq -c -L "$HERE" --arg scanner "${b%%-*}" --arg sbom "${b#*-}" 'include "vulns"; findings' "$f"
+done | jq -s -L "$HERE" 'include "vulns";
+  group_by([.scanner, .sbom, .pkg, .id]) | map(
+    .[0] + {ids: (map(.ids[]) | unique), sev: (max_by(.sev | sev_rank) | .sev),
+            fixed: any(.fixed), fix: (map(.fix[]) | unique),
+            epss: ([.[].epss | numbers] | max), kev: any(.kev == true)})' > "$OUT/findings.json"
+
+# packages that ran (runtime SBOM, stage 4)
+RUNTIME_JSON="null"
+[[ -s "$DIR/runtime.cdx.json" ]] && RUNTIME_JSON="$(jq -c -L "$HERE" 'include "graph"; [.components[]?.purl // empty | norm_purl] | unique' "$DIR/runtime.cdx.json")"
+
+# accepted risks: "<package|ID> <expires> <reason>"
+TODAY="$(date -u +%F)"
+ACCEPT_JSON="$( { grep -vE '^\s*(#|$)' "$APPDIR/vuln-accept.txt" 2> /dev/null || true; } \
+  | jq -R -s -c --arg today "$TODAY" 'split("\n") | map(select(length > 0) | capture("^(?<key>\\S+)\\s+(?<expires>\\S+)\\s+(?<reason>.*)$"))
+      | map(. + {valid: (.expires >= $today)})')"
+EXPECT_JSON="$( { grep -vE '^\s*(#|$)' "$APPDIR/vuln-expect.txt" 2> /dev/null || true; } \
+  | jq -R -s -c 'split("\n") | map(select(length > 0) | capture("^(?<id>\\S+)\\s*(?<note>.*)$"))')"
+
+# union of all scanners on all image SBOMs, per (package, vulnerability)
+jq -L "$HERE" --argjson runtime "$RUNTIME_JSON" --argjson accept "$ACCEPT_JSON" 'include "vulns";
+  [.[] | select(.sbom | endswith("-image"))] | group_by([.pkg, .id]) | map(
+    .[0] + {scanners: (map(.scanner) | unique), pairs: (map("\(.scanner)@\(.sbom)") | unique), ids: (map(.ids[]) | unique),
+            sev: (max_by(.sev | sev_rank) | .sev), fixed: any(.fixed), fix: (map(.fix[]) | unique),
+            epss: ([.[].epss | numbers] | max), kev: any(.kev == true)})
+  | map(. as $f | (.pkg | split("@")[0]) as $name
+      | . + {runs: (if $runtime == null then null else ($runtime | index($f.pkg)) != null end),
+             accepted: ([$accept[] | . as $a | select($a.valid and ($a.key == $name or ($f.ids | index($a.key) != null)
+                                 or (($a.key | endswith("*")) and ($name | startswith($a.key | rtrimstr("*"))))))][0].key // null)})' \
+  "$OUT/findings.json" > "$OUT/gate.json"
+
+# --- 4. report ---------------------------------------------------------------------
+label() { case "$1" in native-build) echo "\`$1.cdx.json\` (2 build)" ;; *) echo "\`$1.cdx.json\` (3 image)" ;; esac; }
+{
+echo "## Vulnerabilities ($APP)"
+echo
+echo "Three scanners, three databases: [Grype](https://github.com/anchore/grype) (Anchore), [Trivy](https://github.com/aquasecurity/trivy) (\`trivy sbom\`, Aqua) and [OSV-Scanner](https://github.com/google/osv-scanner) (osv.dev). They read the **SBOMs**, never the image. Findings are counted per package and vulnerability, after mapping each scanner's IDs (GHSA, PYSEC, RUSTSEC…) to the CVE when there is one. Grype DB built: $(jq -r '.descriptor.db.status.built // .descriptor.db.built // "?"' "$OUT/grype-$GATE_SBOM.json" 2> /dev/null || echo '?')."
+echo
+echo "### Findings per scanner and SBOM"
+echo
+echo "Cells: findings (critical / high). The SBOM decides what the scanner can match."
+echo
+echo "| SBOM | Grype | Trivy | OSV-Scanner |"
+echo "|---|---|---|---|"
+for s in $SBOMS; do
+  [[ -s "$DIR/$s.cdx.json" ]] || continue
+  row="| $(label "$s") |"
+  for sc in $SCANNERS; do
+    if [[ -s "$OUT/$sc-$s.json" ]]; then
+      row+=" $(jq -r --arg s "$s" --arg sc "$sc" '[.[] | select(.sbom == $s and .scanner == $sc)]
+        | "\(length) (\(map(select(.sev == "critical")) | length) / \(map(select(.sev == "high")) | length))"' "$OUT/findings.json") |"
+    else row+=" failed |"; fi
+  done
+  echo "$row"
+done
+echo
+echo "Why the same image gives such different numbers: Debian publishes its advisories per **source** package (\`krb5\`), while an SBOM lists binary packages (\`libgssapi-krb5-2\`). The SBOM must carry the source name, and each generator does it its own way: Trivy in a property (\`aquasecurity:trivy:SrcName\`), Syft as a purl qualifier (\`upstream=krb5\`), cdxgen not at all. A scanner reading another generator's SBOM misses most OS vulnerabilities. OSV-Scanner reads Debian packages only with \`distro=debian-13\` (cdxgen), not \`debian-13.7\` (Syft, Trivy). Language packages match everywhere: their purl is all a scanner needs."
+echo
+
+echo "### Do the scanners agree? (all image SBOMs)"
+echo
+echo "A finding counts for a scanner if it reported it on any of the image SBOMs."
+echo
+echo "| Found by | Findings | Critical + high |"
+echo "|---|---|---|"
+jq -r 'group_by(.scanners | join(" + ")) | sort_by([-(.[0].scanners | length), (.[0].scanners | join(" + "))])[]
+  | "| \(.[0].scanners | join(" + ")) | \(length) | \(map(select(.sev == "critical" or .sev == "high")) | length) |"' "$OUT/gate.json" \
+  | sed 's/grype/Grype/g; s/trivy/Trivy/g; s/osv/OSV/g'
+echo
+single="$(jq -r '[.[] | select((.scanners | length) == 1 and (.sev == "critical" or .sev == "high"))]
+  | sort_by(.scanners[0], .pkg)[] | "| \(.scanners[0]) | `\(.pkg)` | \(.id) | \(.sev) |"' "$OUT/gate.json")"
+if [[ -n "$single" ]]; then
+  echo "<details><summary>Critical/high found by only one scanner ($(wc -l <<< "$single"))</summary>"
+  echo
+  echo "| Scanner | Package | Vulnerability | Severity |"
+  echo "|---|---|---|---|"
+  echo "$single"
+  echo
+  echo "</details>"
+  echo
+fi
+
+echo "### Planted vulnerabilities (\`vuln-expect.txt\`)"
+echo
+echo "Which scanner (**G**rype, **T**rivy, **O**SV) found each planted CVE, per SBOM. A CVE no scanner finds on any image SBOM fails the build."
+echo
+hdr="| CVE | Note |"; sep="|---|---|"
+for s in $SBOMS; do [[ -s "$DIR/$s.cdx.json" ]] && { hdr+=" \`$s\` |"; sep+="---|"; }; done
+echo "$hdr"; echo "$sep"
+MISSED=0
+while IFS=$'\t' read -r id note; do
+  row="| $id | $note |"
+  for s in $SBOMS; do
+    [[ -s "$DIR/$s.cdx.json" ]] || continue
+    got="$(jq -r --arg id "$id" --arg s "$s" '[.[] | select(.sbom == $s and (.ids | index($id)))] | map(.scanner[0:1] | ascii_upcase) | unique | join(" ")' "$OUT/findings.json")"
+    [[ -z "$got" ]] && got="❌"
+    row+=" $got |"
+  done
+  jq -e --arg id "$id" 'any(.[]; .ids | index($id))' "$OUT/gate.json" > /dev/null || MISSED=$((MISSED + 1))
+  echo "$row"
+done < <(jq -r '.[] | [.id, .note] | @tsv' <<< "$EXPECT_JSON")
+echo
+
+echo "### What to fix first (image)"
+echo
+jq -r 'map(select(.sev == "critical" or .sev == "high")) as $ch
+  | "**\($ch | length)** critical/high findings; **\($ch | map(select(.fixed)) | length)** have a fix; **\($ch | map(select(.runs == true)) | length)** are in packages that ran (runtime SBOM); **\($ch | map(select(.kev)) | length)** are in CISA KEV (actively exploited)."' "$OUT/gate.json"
+echo
+echo "Order: known exploited (KEV), then the package ran, then severity, then EPSS (probability of exploitation in the next 30 days)."
+echo
+prio="$(jq -r -L "$HERE" 'include "vulns";
+  map(select(.sev == "critical" or .sev == "high"))
+  | sort_by([(if .kev then 0 else 1 end), (if .runs == true then 0 else 1 end), -(.sev | sev_rank), -(.epss // 0)])[]
+  | "| `\(.pkg)` | \(.id) | \(.sev) | \(if .epss then "\(.epss * 1000 | round / 10)%" else "–" end) | \(if .kev then "**yes**" else "" end) | \(if .runs == true then "yes" elif .runs == false then "no" else "?" end) | \(if .fixed then (.fix | join(", ") | if . == "" then "yes" else . end) else "no fix" end) | \(.scanners | join(", ")) |"' "$OUT/gate.json")"
+hdr="| Package | Vulnerability | Severity | EPSS | KEV | Ran | Fixed in | Scanners |"
+if [[ -n "$prio" ]]; then
+  echo "$hdr"; echo "|---|---|---|---|---|---|---|---|"
+  head -15 <<< "$prio"
+  echo
+  if (( $(wc -l <<< "$prio") > 15 )); then
+    echo "<details><summary>All $(wc -l <<< "$prio") critical/high findings</summary>"; echo
+    echo "$hdr"; echo "|---|---|---|---|---|---|---|---|"; echo "$prio"; echo; echo "</details>"; echo
+  fi
+fi
+
+echo "### Gate"
+echo
+echo "Policy: no critical/high vulnerability **with a fix** in the image (any scanner, any image SBOM), unless accepted in \`apps/$APP/vuln-accept.txt\` (package or ID, with an expiry date). Vulnerabilities without a fix are reported above, not gated."
+echo
+blocked="$(jq -r '[.[] | select((.sev == "critical" or .sev == "high") and .fixed and .accepted == null)]
+  | sort_by(.pkg, .id)[] | "| `\(.pkg)` | \(.id) | \(.sev) | \(.fix | join(", ")) |"' "$OUT/gate.json")"
+accepted="$(jq -r '[.[] | select((.sev == "critical" or .sev == "high") and .fixed and .accepted != null)] | length' "$OUT/gate.json")"
+BLOCKED=0
+if [[ -n "$blocked" ]]; then
+  BLOCKED="$(wc -l <<< "$blocked")"
+  echo "❌ **$BLOCKED blocking** ($accepted accepted):"
+  echo
+  echo "| Package | Vulnerability | Severity | Fixed in |"
+  echo "|---|---|---|---|"
+  echo "$blocked"
+else
+  echo "✅ **Pass**: nothing blocking ($accepted critical/high with a fix accepted)."
+fi
+echo
+if [[ "$ACCEPT_JSON" != "[]" ]]; then
+  echo "| Accepted | Expires | Findings it covers | Reason |"
+  echo "|---|---|---|---|"
+  jq -r --slurpfile g "$OUT/gate.json" '.[] | . as $a
+    | "| `\(.key)` | \(.expires)\(if .valid then "" else " ⚠️ expired" end) | \([$g[0][] | select(.accepted == $a.key)] | length) | \(.reason) |"' <<< "$ACCEPT_JSON"
+  echo
+fi
+if (( MISSED > 0 )); then echo "❌ **$MISSED planted CVE(s) not found by any scanner** on any image SBOM."; echo; fi
+} > "$R/vulns.md"
+
+if (( BLOCKED > 0 || MISSED > 0 )); then
+  echo "fail blocking=$BLOCKED planted_missed=$MISSED" > "$OUT/gate.status"
+else
+  echo "pass" > "$OUT/gate.status"
+fi
+echo "report: $R/vulns.md (gate: $(cat "$OUT/gate.status"))"

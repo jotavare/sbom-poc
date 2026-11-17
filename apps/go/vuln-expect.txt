@@ -1,0 +1,5 @@
+# Planted vulnerabilities the scanners must find: "<CVE> <note>".
+# The build fails if no scanner finds one on the analyzed image SBOM.
+CVE-2020-26160 dgrijalva/jwt-go 3.2.0: audience check bypass
+CVE-2022-32149 golang.org/x/text 0.3.7: ReDoS in language tags
+CVE-2019-11254 gopkg.in/yaml.v2 2.2.7: CPU exhaustion

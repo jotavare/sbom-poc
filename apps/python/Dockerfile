@@ -35,6 +35,11 @@ RUN python3 -m venv /opt/cdx && /opt/cdx/bin/pip install cyclonedx-bom==8.0.1 \
 FROM scratch AS sbom-export
 COPY --from=sbom /native-build.cdx.json /
 
+# --- venv stage: the app's venv without pip. pip only installs, it never runs in
+#     the app (runtime SBOM), yet it shipped and the vulnerability gate flagged it.
+FROM base AS venv
+RUN python -m pip uninstall -y pip
+
 # --- runtime stage (default): distroless, no shell, no pip, non-root ---
 # Only the venv and the app are copied: the build image's apt, pip and shell
 # stay behind. Google marks the Python distroless image experimental.
@@ -42,7 +47,7 @@ COPY --from=sbom /native-build.cdx.json /
 FROM gcr.io/distroless/python3-debian13:nonroot@sha256:6c4cb3bfa4b555429dd19541796a6ba6b30c84675b460bd0bd5072f7d5bdae71 AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /srv
-COPY --from=base /opt/venv /opt/venv
+COPY --from=venv /opt/venv /opt/venv
 COPY app.py ./
 USER nonroot:nonroot
 EXPOSE 8080

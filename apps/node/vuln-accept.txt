@@ -1,0 +1,9 @@
+# Accepted risks for the vulnerability gate: "<package | prefix* | ID> <expires YYYY-MM-DD> <reason>".
+# Package = normalised purl without version (as in reports/vulns.md). Expired entries stop applying,
+# so every acceptance is reviewed again. This app is vulnerable ON PURPOSE: its pins are the test data.
+npm/lodash         2027-05-17 planted: 4.17.15, prototype pollution + template injection
+npm/jsonwebtoken   2027-05-17 planted: 8.5.1, no algorithm allow-list
+npm/axios          2027-05-17 planted: 0.21.1
+npm/body-parser    2027-05-17 planted: pinned by express 4.17.1
+npm/path-to-regexp 2027-05-17 planted: pinned by express 4.17.1
+npm/qs             2027-05-17 planted: pinned by express 4.17.1

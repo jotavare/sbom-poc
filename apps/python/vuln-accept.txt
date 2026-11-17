@@ -1,0 +1,9 @@
+# Accepted risks for the vulnerability gate: "<package without version | ID> <expires YYYY-MM-DD> <reason>".
+# Package = normalised purl without version (as in reports/vulns.md). Expired entries stop applying,
+# so every acceptance is reviewed again. This app is vulnerable ON PURPOSE: its pins are the test data.
+pypi/pyyaml   2027-05-17 planted: 5.3.1, yaml.load RCE (CVE-2020-14343)
+pypi/flask    2027-05-17 planted: Flask 2.0.3 stack
+pypi/werkzeug 2027-05-17 planted: pinned with Flask 2.0.3 (debugger RCE CVE-2024-34069)
+pypi/jinja2   2027-05-17 planted: pinned with Flask 2.0.3
+pypi/urllib3  2027-05-17 planted: pinned with requests 2.25.1
+pypi/idna     2027-05-17 planted: pinned with requests 2.25.1

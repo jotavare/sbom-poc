@@ -1,0 +1,10 @@
+# Accepted risks for the vulnerability gate: "<package | prefix* | ID> <expires YYYY-MM-DD> <reason>".
+# Package = normalised purl without version (as in reports/vulns.md). Expired entries stop applying,
+# so every acceptance is reviewed again. This app is vulnerable ON PURPOSE: its pins are the test data.
+maven/org.apache.logging.log4j/log4j-core 2027-05-17 planted: 2.14.1, Log4Shell
+maven/org.yaml/snakeyaml                  2027-05-17 planted: 1.29, unsafe deserialization
+maven/org.springframework/*               2027-05-17 planted: Spring Boot 2.6.1 stack (Spring4Shell)
+maven/org.springframework.boot/*          2027-05-17 planted: Spring Boot 2.6.1
+maven/org.apache.tomcat.embed/*           2027-05-17 planted: Tomcat pinned by Spring Boot 2.6.1
+maven/com.fasterxml.jackson.core/*        2027-05-17 planted: Jackson pinned by Spring Boot 2.6.1
+maven/ch.qos.logback/*                    2027-05-17 planted: Logback pinned by Spring Boot 2.6.1
