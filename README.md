@@ -111,16 +111,33 @@ First findings (Python): `chardet` is **LGPL** (a real violation); the native Py
 - `make summary APP=<app>` → `sbom/<app>/reports/summary.md` (generator comparison + licences + quality)
 - `make report` → `docs/SBOM-REPORT.md` (all apps). CI builds it as the `sbom-report` artifact.
 
-### Earlier Syft vs Trivy findings
+### What the generators disagree on
 
-| Finding | Detail |
+The comparison (`make sbom-compare`) normalises representation differences first, then compares **runtime dependencies**:
+
+| Normalised (same package, different spelling) | Not compared (counted in their own rows) |
 |---|---|
-| **Image SBOMs agree** | Same packages in every image once version formats are normalised |
-| **Java source: Trivy wins** | Trivy resolves the full Maven tree (34 packages); Syft lists only the 4 direct deps (its transitive option over-reported 262) |
-| **Licences: Syft wins** | With `--enrich`, Syft looks licences up online for Python/npm/Go source SBOMs |
-| **Hashes: Trivy; CPEs + supplier: Syft** | |
-| **Size** | Syft lists every file owned by a package: 3–6× larger SBOMs |
-| **Format differences** | Debian epochs (`1:2.41` vs `?epoch=1`), Go versions (`1.27.4` vs `v1.27.4`), PyPI names (`_` vs `-`): normalised before comparing |
+| Debian epochs: `1:2.41`, `1%3a2.41`, `?epoch=1` | Dev/test dependencies: cdxgen lists them with `scope: optional` (node: 107, java: 28); its `required` set matches native exactly |
+| `+` vs `%2b` (Go `+incompatible`, Debian `+deb13u1`) | Debian **source** packages: cdxgen adds `glibc`, `openssl`… (`?arch=source`) next to the binary packages `libc6`, `libssl3t64` |
+| Go: `v1.27.4` vs `1.27.4`, `std@go1.27.4` vs `stdlib@1.27.4` | The app itself (`poc-java`, `poc-rust`, the Go module) |
+| PyPI names per PEP 503 (`_` / `.` = `-`) | |
+
+Agreement after that (packages found by **every** generator):
+
+| App | Source | Image | Real differences that remain |
+|---|---|---|---|
+| python | 14 / 16 | **102 / 102** | Native scans the installed environment: no `pytest` (dev), but lists `pip` |
+| node | **67 / 67** | 299 / 300 | cdxgen also detects a `brotli` binary in the image |
+| go | 3 / 4 | 9 / 10 | Go stdlib: only native lists it in source (`-std`); cdxgen doesn't read it from the binary |
+| java | 2 / 34 | 179 / 181 | **Syft lists only the 4 direct deps** from `pom.xml`; cdxgen misses a Go binary's stdlib in the JDK image |
+| rust | 19 / 23 | 14 / 33 | Lockfile tools list Windows-only `winapi*` crates, native (`cargo metadata` for Linux) doesn't; **cdxgen doesn't read `cargo auditable` data** from the binary |
+
+Other per-generator traits:
+
+| | Syft | Trivy | cdxgen | Native |
+|---|---|---|---|---|
+| Strengths | CPEs, supplier metadata, licences via `--enrich`, catalogues GitHub Actions | Full Maven tree from `pom.xml`, package hashes, small SBOMs | Runs the real toolchain, marks dev/test scope, finds extra binaries | Package manager's own resolution, licences, runtime scope only |
+| Weak spots | Java transitive deps; large SBOMs (every file listed) | No licences for Python source | Rust binaries, Go stdlib in binaries; huge image | Only source/build view; Python licences as classifier text |
 
 ### Speed
 
@@ -132,6 +149,7 @@ First findings (Python): `chardet` is **LGPL** (a real violation); the native Py
 | Persistent Trivy cache (+ `actions/cache` in CI) | Trivy's Java DB is downloaded once, not per scan (java: ~190s per scan saved) |
 | cdxgen binary cached (`actions/cache`, keyed by version) | 183 MB downloaded once |
 | Syft `--enrich` only for source scans | Images already carry licences (node: 55s saved) |
+| Rust: prebuilt, checksum-verified `cargo-auditable` / `cargo-cyclonedx` (`ADD --checksum`) instead of `cargo install` | No compiling the tools on every CI run (rust was the slowest job: 196s) |
 | Offline Maven repo for Java (`maven-repo` stage) | No Maven Central rate limits (HTTP 429) |
 | `make -j sbom-all` | Apps in parallel (separate caches per app) |
 

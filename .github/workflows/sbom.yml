@@ -14,10 +14,14 @@ concurrency:
   group: sbom-${{ github.ref }}
   cancel-in-progress: true
 
+# Runner: pinned to the OS label, not `ubuntu-latest` (which moves to a new
+# Ubuntu release without notice). Hosted runner images can't be pinned by
+# digest; GitHub refreshes them weekly. Everything that runs on them is pinned:
+# actions by commit SHA, tools and base images by digest.
 jobs:
   sbom:
     name: SBOM (${{ matrix.app }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -78,7 +82,7 @@ jobs:
     name: Combined report
     needs: sbom
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - name: Checkout

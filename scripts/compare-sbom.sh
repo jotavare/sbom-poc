@@ -22,6 +22,8 @@ LIBS='[.. | objects | select((.type? == "library" or .type? == "framework") and 
 # label|jq expression over a CycloneDX document
 METRICS=(
   "Libraries (total)|$LIBS | length"
+  "  dev/test (not compared)|$LIBS | map(select((.scope // \"required\") != \"required\")) | length"
+  "  OS source pkgs (not compared)|$LIBS | map(select((.purl // \"\") | test(\"[?&]arch=source\"))) | length"
   "with licence|$LIBS | map(select((.licenses // []) | length > 0)) | length"
   "with hashes|$LIBS | map(select((.hashes // []) | length > 0)) | length"
   "with CPE|$LIBS | map(select(.cpe)) | length"
@@ -35,16 +37,28 @@ METRICS=(
 # Package-URL types of the library components, e.g. "pypi", "deb", "golang"
 purl_types() { jq -r "$LIBS | .[] | .purl // empty | capture(\"^pkg:(?<t>[^/]+)/\").t" "$1"; }
 
+# Components that are not compared (counted in their own rows instead):
+#   - dev/test dependencies: cdxgen lists them with scope "optional"/"excluded";
+#     the other generators leave them out (its "required" set matches native)
+#   - Debian source packages: cdxgen adds e.g. glibc (?arch=source) next to the
+#     binary packages (libc6) that every tool lists
+#   - the app itself (poc-*, the Go module), which some tools list as a component
+IN_SCOPE='select((.scope // "required") == "required")
+          | select((.purl // "") | test("[?&]arch=source") | not)
+          | select((.purl // "") | test("/poc-[a-z]+@|/poc-[a-z]+$|devsecops-sbom-poc") | not)'
+
 # Normalised "type/name@version" packages, so representation differences don't
 # look like different packages:
 #   - qualifiers (?arch=, ?epoch=, ...) and #subpath dropped; lower-cased
-#   - Debian epochs: Syft puts them in the version (1%3a2.41), Trivy in ?epoch=1
-#   - Go: some tools prefix versions with "v" (stdlib@v1.27.4), some don't
+#   - Debian epochs: in the version (1:2.41 or 1%3a2.41) vs ?epoch=1
+#   - "+" vs "%2b" (e.g. Go +incompatible, Debian +deb13u1)
+#   - Go: "v" prefixes (stdlib@v1.27.4) and std@go1.27.4 vs stdlib@1.27.4
 #   - PyPI: names compared per PEP 503 (_ and . are the same as -)
 #   - npm scopes: %40scope and @scope are the same
 packages() {
-  jq -r "$LIBS | .[] | .purl // empty" "$1" \
-    | sed -E 's/[?#].*$//; s/^pkg://; s/@[0-9]+%3[aA]/@/; s/^(golang\/[^@]+)@v/\1@/; s/%40/@/g' \
+  jq -r "$LIBS | .[] | $IN_SCOPE | .purl // empty" "$1" \
+    | sed -E 's/[?#].*$//; s/^pkg://; s/%40/@/g; s/%2[bB]/+/g; s/@[0-9]+(%3[aA]|:)/@/' \
+    | sed -E 's/^golang\/std@go/golang\/stdlib@/; s/^(golang\/[^@]+)@v/\1@/' \
     | tr '[:upper:]' '[:lower:]' \
     | awk -F'@' '/^pypi\// { n=$1; sub(/^pypi\//, "", n); gsub(/[_.]/, "-", n); print "pypi/" n "@" $2; next } { print }' \
     | sort -u
@@ -90,7 +104,7 @@ compare_target() {
     (( found < ${#gens[@]} )) && rows+=("$row")
   done < "$tmp/all"
   local total; total=$(wc -l < "$tmp/all")
-  echo "**Agreement:** $((total - ${#rows[@]})) of $total packages found by every generator."
+  echo "**Agreement:** $((total - ${#rows[@]})) of $total packages found by every generator (runtime dependencies, after normalisation)."
   echo
   if (( ${#rows[@]} > 0 )); then
     echo "<details><summary>${#rows[@]} packages not found by every generator</summary>"
