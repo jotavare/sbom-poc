@@ -400,7 +400,7 @@ elif [[ "$APP" == java ]] && docker image inspect "$IMAGE" > /dev/null 2>&1; the
   v=$(docker run --rm --network none --entrypoint /usr/bin/java "$IMAGE" -version 2>&1 | head -2 | tr '\n' ' ' || true)
   [[ -n "$v" ]] && unscanned="| Java runtime | \`${v% }\` (a Temurin package: no Debian advisory and no CPE in the SBOMs, so no scanner matches it) | [OpenJDK vulnerability advisories](https://openjdk.org/groups/vulnerability/advisories/) |"
 elif [[ "$APP" == rust ]]; then
-  v=$(jq -r '[.. | objects | to_entries[]? | select(.key == "RUST_VERSION") | .value][0] // empty' "$DIR/buildkit-provenance.json" 2> /dev/null || true)
+  v=$(grep -oE 'RUST_VERSION=[0-9][0-9.]*' "$DIR/buildkit-provenance.json" 2> /dev/null | head -1 | cut -d= -f2 || true)
   [[ -z "$v" ]] && v=$(grep -oE 'rust:[^@" ]+' "$APPDIR/Dockerfile" | head -1)
   [[ -n "$v" ]] && unscanned="| Rust toolchain | rustc \`$v\`: std is compiled into the binary but no SBOM lists it | [RustSec advisories for rust/std](https://rustsec.org/categories/) |"
 fi

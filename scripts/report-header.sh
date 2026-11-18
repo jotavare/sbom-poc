@@ -49,7 +49,7 @@ for a in ${APPS:-$(ls apps)}; do
   elif [[ -s "$g" ]]; then
     jq -r --arg a "$a" --arg st "$(cat "$ROOT/$a/vulns/gate.status" 2> /dev/null || echo '?')" '
       [.[] | select(.sev == "critical" or .sev == "high")] as $c
-      | "| [\($a)](#\($a)) | \($st) | \($c | length) | \($c | map(select(.fixed)) | length) | \($c | map(select(.runs == true)) | length) | \($c | map(select(.kev)) | length) |"' "$g"
+      | "| [\($a)](#\($a)) | \($st) | \($c | length) | \($c | map(select(.fixed)) | length) | \($c | map(select(.runs == true)) | length) | \(map(select(.kev)) | map(.id) | unique | length) |"' "$g"
   else
     echo "| [$a](#$a) | not run | | | | |"
   fi
