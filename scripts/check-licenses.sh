@@ -105,7 +105,7 @@ jq -r "$STATUS"'
   | ($s | map(select(. == "violation")) | length) as $v
   | ($s | map(select(. == "unknown")) | length) as $u
   | "| `\($ref)` | \($s | length) | \($s | map(select(. == "allowed")) | length) | \($v) | \($u) | \($s | map(select(. == "ignored")) | length) | \(
-      if ($s | length) == 0 then "⚠️ no packages" elif $v > 0 then "❌ violation" elif $u > 0 then "⚠️ incomplete data" else "✅ pass" end) |"' "$OUT"
+      if ($s | length) == 0 then "warning: no packages" elif $v > 0 then "FAIL: violation" elif $u > 0 then "warning: incomplete data" else "pass" end) |"' "$OUT"
 echo
 echo "<details><summary>Violations and unknowns per SBOM</summary>"
 echo
@@ -115,7 +115,7 @@ jq -r "$STATUS"'
      | select(.st == "violation" or .st == "unknown")] as $p
   | select(($p | length) > 0)
   | "**`\($ref)`**", "",
-    ($p | sort_by(.st, .name)[] | "- \(if .st == "violation" then "❌" else "⚠️" end) `\(.name)@\(.version)`: \(if .lic == "" then "_no licence_" else .lic end)"),
+    ($p | sort_by(.st, .name)[] | "- \(if .st == "violation" then "**violation**" else "unknown" end) `\(.name)@\(.version)`: \(if .lic == "" then "_no licence_" else .lic end)"),
     ""' "$OUT"
 echo "</details>"
 echo

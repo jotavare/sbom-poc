@@ -66,7 +66,7 @@ echo "==> [$APP] scancode: done ($((SECONDS - start))s)"
 {
   echo "## ScanCode: declared vs detected licences ($APP)"
   echo
-  echo "Declared = package metadata (what SBOM generators report). Detected = ScanCode's findings in the package's own files (licence texts, headers). ⚠️ = detected licences that the declaration doesn't mention (pointers like "see LICENSE", reported as \`LicenseRef-scancode-unknown-license-reference\`, are not flagged)."
+  echo "Declared = package metadata (what SBOM generators report). Detected = ScanCode's findings in the package's own files (licence texts, headers). "(+)" = detected licences that the declaration doesn't mention (pointers like "see LICENSE", reported as \`LicenseRef-scancode-unknown-license-reference\`, are not flagged)."
   echo
   echo "| Package | Declared | Detected in files | Copyright holders |"
   echo "|---|---|---|---|"
@@ -85,7 +85,7 @@ echo "==> [$APP] scancode: done ($((SECONDS - start))s)"
         | {name: ("\($p.name)@\($p.version // "?")"), decl: $decl, det: ($detIds | join(", ")),
            extra: $extra, holders: ($holders | .[0:3] | join("; ")), nh: ($holders | length)} ]
     | sort_by(.name)[]
-    | "| `\(.name)` | \(if .decl == "" then "_none_" else "`" + .decl + "`" end) | \(.det)\(if (.extra | length) > 0 then " ⚠️" else "" end) | \(.holders)\(if .nh > 3 then " (+\(.nh - 3))" else "" end) |"' \
+    | "| `\(.name)` | \(if .decl == "" then "_none_" else "`" + .decl + "`" end) | \(.det)\(if (.extra | length) > 0 then " (+)" else "" end) | \(.holders)\(if .nh > 3 then " (+\(.nh - 3))" else "" end) |"' \
     "$DIR/reports/scancode.json"
   echo
   echo "_Raw results: \`reports/scancode.json\`. Packages ScanCode assembled from the scanned files only._"

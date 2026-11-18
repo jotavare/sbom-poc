@@ -197,6 +197,9 @@ Full CI run: about 7 minutes for all five apps, vulnerability scan included (Jav
 | Offline Maven repo for Java | no Maven Central rate limits (HTTP 429) |
 | Syft `--enrich` only for source scans | node: 55 s saved |
 | Timeouts + a log per tool call | a hang fails fast and names itself |
+| Validators in parallel, each SPDX 3 file in its own process; validators cached | validation 25–48 s → 14–18 s (SPDX 3 SHACL checking is the slow part, not Python start-up) |
+
+Tried and dropped: a BuildKit layer cache in the GitHub Actions cache (`type=gha`). It filled the repository's 10 GB cache limit, which evicted the vulnerability DBs (scan step 15 s → 80 s), and exporting/importing layers cost about what it saved: jobs got 10–40 s slower.
 
 ## Layout
 

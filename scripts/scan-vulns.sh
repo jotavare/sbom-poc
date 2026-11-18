@@ -223,7 +223,7 @@ while IFS=$'\t' read -r id note; do
   for s in $SBOMS; do
     [[ -s "$DIR/$s.cdx.json" ]] || continue
     got="$(jq -r --arg id "$id" --arg s "$s" '[.[] | select(.sbom == $s and (.ids | index($id)))] | map(.scanner[0:1] | ascii_upcase) | unique | join(" ")' "$OUT/findings.json")"
-    [[ -z "$got" ]] && got="❌"
+    [[ -z "$got" ]] && got="**missed**"
     row+=" $got |"
   done
   jq -e --arg id "$id" 'any(.[]; .ids | index($id))' "$OUT/gate.json" > /dev/null || MISSED=$((MISSED + 1))
@@ -263,23 +263,23 @@ accepted="$(jq -r '[.[] | select((.sev == "critical" or .sev == "high") and .fix
 BLOCKED=0
 if [[ -n "$blocked" ]]; then
   BLOCKED="$(wc -l <<< "$blocked")"
-  echo "❌ **$BLOCKED blocking** ($accepted accepted):"
+  echo "**Fail: $BLOCKED blocking** ($accepted accepted):"
   echo
   echo "| Package | Vulnerability | Severity | Fixed in |"
   echo "|---|---|---|---|"
   echo "$blocked"
 else
-  echo "✅ **Pass**: nothing blocking ($accepted critical/high with a fix accepted)."
+  echo "**Pass**: nothing blocking ($accepted critical/high with a fix accepted)."
 fi
 echo
 if [[ "$ACCEPT_JSON" != "[]" ]]; then
   echo "| Accepted | Expires | Findings it covers | Reason |"
   echo "|---|---|---|---|"
   jq -r --slurpfile g "$OUT/gate.json" '.[] | . as $a
-    | "| `\(.key)` | \(.expires)\(if .valid then "" else " ⚠️ expired" end) | \([$g[0][] | select(.accepted == $a.key)] | length) | \(.reason) |"' <<< "$ACCEPT_JSON"
+    | "| `\(.key)` | \(.expires)\(if .valid then "" else " (expired)" end) | \([$g[0][] | select(.accepted == $a.key)] | length) | \(.reason) |"' <<< "$ACCEPT_JSON"
   echo
 fi
-if (( MISSED > 0 )); then echo "❌ **$MISSED planted CVE(s) not found by any scanner** on any image SBOM."; echo; fi
+if (( MISSED > 0 )); then echo "**Fail: $MISSED planted CVE(s) not found by any scanner** on any image SBOM."; echo; fi
 } > "$R/vulns.md"
 
 if (( BLOCKED > 0 || MISSED > 0 )); then

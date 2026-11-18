@@ -42,7 +42,8 @@ PYJSONSCHEMA="$ROOT/.cache/jsonschema-rs-$JSONSCHEMA_RS_VERSION"
 SPDX3_SCHEMA="$ROOT/.cache/spdx-3.0.1-json-schema.json"
 (
   flock 9
-  if ! echo "$SPDX3_SCHEMA_SHA256  $SPDX3_SCHEMA" | sha256sum -c --status 2> /dev/null; then
+  # (sha256sum reports a missing file on stdout, which is this script's report)
+  if ! echo "$SPDX3_SCHEMA_SHA256  $SPDX3_SCHEMA" | sha256sum -c --status > /dev/null 2>&1; then
     curl -fsSL --retry 3 -o "$SPDX3_SCHEMA" "$SPDX3_SCHEMA_URL"
     echo "$SPDX3_SCHEMA_SHA256  $SPDX3_SCHEMA" | sha256sum -c --status \
       || { echo "error: SPDX 3.0.1 schema checksum mismatch" >&2; exit 1; }
@@ -93,11 +94,17 @@ batch() {  # <image> <PYTHONPATH or -> <command template> <file:log pairs...>
       done' _ "$cmd" "$@"
 }
 
-batch "$CDX_CLI_IMAGE" "" '/cyclonedx validate --input-file "$1" --fail-on-errors' "${CDX[@]}"
-batch "$PY_IMAGE" "$(basename "$PYSPDX")" 'python -m spdx_tools.spdx.clitools.pyspdxtools -i "$1"' "${SPDX2[@]}"
-batch "$PY_IMAGE" "$(basename "$PYSPDX3")" 'python -m spdx3_validate --quiet --json "$1"' "${SPDX3_FULL_LIST[@]}"
+# The validators are independent: run them in parallel. SPDX 3 SHACL checking
+# is by far the slowest part (tens of seconds per file; Python start-up is ~1.5 s),
+# so each SPDX 3 file gets its own process too.
+batch "$CDX_CLI_IMAGE" "" '/cyclonedx validate --input-file "$1" --fail-on-errors' "${CDX[@]}" &
+batch "$PY_IMAGE" "$(basename "$PYSPDX")" 'python -m spdx_tools.spdx.clitools.pyspdxtools -i "$1"' "${SPDX2[@]}" &
+for spec in "${SPDX3_FULL_LIST[@]}"; do
+  batch "$PY_IMAGE" "$(basename "$PYSPDX3")" 'python -m spdx3_validate --quiet --json "$1"' "$spec" &
+done
 batch "$PY_IMAGE" "$(basename "$PYJSONSCHEMA")" \
-  'python /scripts/spdx3_schema_check.py /cache/spdx-3.0.1-json-schema.json "$1"' "${SPDX3_SCHEMA_LIST[@]}"
+  'python /scripts/spdx3_schema_check.py /cache/spdx-3.0.1-json-schema.json "$1"' "${SPDX3_SCHEMA_LIST[@]}" &
+wait
 
 # --- results table ---------------------------------------------------------------
 invalid=0
@@ -124,7 +131,7 @@ for rel in "${FILES[@]}"; do
     fi
   fi
   if (( ok )); then
-    result="✅ valid"
+    result="valid"
   else
     # SHACL reports: use the "Message:" lines; otherwise the most repeated line
     # (`|| true`: head closes the pipe early, which pipefail would turn into an error)
@@ -138,9 +145,9 @@ for rel in "${FILES[@]}"; do
     fi
     [[ -n "$first" ]] || first=$(head -1 "$log" | cut -c1-140 | tr '|' '/' || true)
     if [[ -f "$ALLOW" ]] && grep -qE "^$rel[[:space:]]" "$ALLOW"; then
-      result="⚠️ invalid (known: $(grep -E "^$rel[[:space:]]" "$ALLOW" | cut -d' ' -f2-)): $first"
+      result="warning: invalid (known generator bug: $(grep -E "^$rel[[:space:]]" "$ALLOW" | cut -d' ' -f2-)): $first"
     else
-      result="❌ invalid: $first"; invalid=$((invalid + 1))
+      result="**FAIL: invalid**: $first"; invalid=$((invalid + 1))
     fi
   fi
   echo "| \`$rel\` | $fmt | $result |"

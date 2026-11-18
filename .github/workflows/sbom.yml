@@ -40,6 +40,17 @@ jobs:
         with:
           persist-credentials: false
 
+      # Python SBOM validators (spdx-tools, spdx3-validate, jsonschema-rs, SPDX 3 schema)
+      - name: Cache SBOM validators
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            sbom/.cache/spdx-tools-*
+            sbom/.cache/spdx3-validate-*
+            sbom/.cache/jsonschema-rs-*
+            sbom/.cache/spdx-3.0.1-json-schema.json
+          key: py-validators-${{ hashFiles('scripts/validate-sbom.sh') }}
+
       - name: Tests (Dockerfile test stage)
         timeout-minutes: 15
         run: make test APP="$APP"

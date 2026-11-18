@@ -166,7 +166,7 @@ compare_target() {
   while read -r pkg; do
     local row="| \`$pkg\` |" found=0
     for g in "${gens[@]}"; do
-      if grep -qxF "$pkg" "$tmp/$g"; then row+=" ✓ |"; found=$((found + 1)); else row+=" · |"; fi
+      if grep -qxF "$pkg" "$tmp/$g"; then row+=" yes |"; found=$((found + 1)); else row+=" - |"; fi
     done
     (( found < ${#gens[@]} )) && rows+=("$row")
   done < "$tmp/all"
