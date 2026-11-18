@@ -135,10 +135,11 @@ Every app listens on **8080** in its container and serves `GET /health`. **Every
 
 ## Findings so far
 
-**Generators disagree, mostly on edges.** After normalising spelling (Debian epochs, `+`/`%2b`, Go `v` prefixes, PEP 503 names) and leaving out dev/test scope, image SBOMs agree almost completely (python 102/102 packages, node 299/300, java 179/181). Real differences that remain:
-- **Java source:** Syft lists only the 4 direct deps from `pom.xml`; Trivy resolves the full tree.
+**Generators disagree, mostly on edges.** After normalising spelling (Debian epochs, `+`/`%2b`, Go `v` prefixes, PEP 503 names) and leaving out dev/test scope, image SBOMs agree almost completely (python 52/52 packages, node 81/83, java 53/54). Real differences that remain:
+- **Java source:** Syft lists only the 3 direct dependencies in `pom.xml` (plus the app itself); Trivy and cdxgen resolve the full tree.
 - **Rust image:** cdxgen can't read `cargo auditable` data; Syft and Trivy can.
-- **Go:** only the native generator lists the Go standard library in source SBOMs.
+- **Go:** only the native generator lists the Go standard library in source SBOMs; cdxgen's image SBOM lists it without a purl, so no scanner can match it.
+- **Runtimes:** Syft and cdxgen record the Node runtime (`pkg:generic/node`), Trivy doesn't; none of them lists what node bundles (OpenSSL, zlib, libuv, llhttp…). No SBOM records the Rust toolchain or std version that is compiled into the binary.
 
 **Dependency graphs differ much more than package lists** (links that the package manager's own `native-build` SBOM also has):
 
@@ -146,38 +147,45 @@ Every app listens on **8080** in its container and serves `GET /health`. **Every
 |---|---|---|---|
 | node | links present, but none from the app (0 direct deps) | 101/101 | 101/101 (+ dev deps marked optional) |
 | java | 0/60 | 60/60 | 29/60 |
-| python | no graph (`requirements.txt` is flat); only native has 12 links | | |
+| python | no graph (`requirements.txt` is flat); only native has links | | |
 
-**Most of what ships never ran, so every image is now distroless** (runtime SBOM, before → after the switch):
+**Most of what ships never runs, so every image is distroless** (runtime SBOM):
 
 | App | Language packages used | OS packages used |
 |---|---|---|
-| python | 13 / 15 (`pip`, `packaging` unused) | 3 / 87 → **5 / 38** |
-| node | 69 / 214 → **67 / 68** (the 145 unused were exactly npm + corepack from the slim image) | 2 / 88 → **4 / 14** |
-| java | 30 / 31 (class-loading log) | 2 / 140 → **3 / 25** |
-| go, rust | all (static binaries: compiled-in modules count as used) | 0 / 6, 2 / 14 (distroless from the start) |
+| python | 13 / 14 (`packaging` unused) | 13 / 38 |
+| node | 67 / 68 (with the slim image: 69 / 214, the 145 unused were exactly npm + corepack) | 5 / 14 |
+| java | 26 / 30 (from the JVM's class-load log) | 3 / 25 |
+| go | all 5 (compiled into the binary) | 0 / 6 |
+| rust | all 20 (compiled in; glibc and libgcc are loaded dynamically) | 2 / 14 |
 
-Distroless also removes the shell: the planted command injection (`sh -c "ping …"`) is still in the code, and SAST will find it, but in the running containers it can't start a shell.
+The slim images shipped 87–140 OS packages; distroless ships 6–38. Distroless also removes the shell: the planted command injection (`sh -c "ping …"`) is still in the code, and SAST will find it, but in the running containers it can't start a shell.
 
-**Blind spots:** with `python:3.12-slim`, CPython was compiled into `/usr/local`: 119 files of its standard library and `libpython` belonged to no package. Distroless Python comes from Debian packages, so that blind spot is gone: what's left in every image is `ca-certificates.crt` (generated at build time) and one motd script.
+**Blind spots:** with `python:3.12-slim`, CPython was compiled into `/usr/local`: 119 files of its standard library and `libpython` belonged to no package. Distroless Python comes from Debian packages, so that blind spot is gone. What's left in every image is one script no package lists (a `base-files` conffile); files that only have an execute bit (`ca-certificates.crt`, `/nodejs/LICENSE`, Java's `cacerts`) aren't counted as code.
 
-**Licences:** after normalising expressions, python has one real violation (`chardet`, **LGPL**); node now passes, since the npm it shipped (Artistic-2.0) is gone. cdxgen and Trivy both write `jakarta.annotation-api`'s dual licence wrong; the native generator gets it right. ScanCode found licences metadata doesn't declare: **Werkzeug ships Ubuntu font files** (Ubuntu Font Licence, CC-BY) for its debugger page.
+**Licences:** after normalising expressions, python has one real violation (`chardet`, **LGPL**); node passes, since the npm it shipped (Artistic-2.0) is gone. cdxgen writes `jakarta.annotation-api`'s dual licence wrong; Trivy writes it correctly but with a non-SPDX exception name, which is now mapped. ScanCode found licences metadata doesn't declare: **Werkzeug ships Ubuntu font files** (Ubuntu Font Licence, CC-BY) for its debugger page.
 
-**Formats and validation:** BuildKit's SPDX 2.3 lacks the SHA-1 file checksums SPDX 2.3 requires; Syft's and cdxgen's SPDX 3.0.1 fail the official SHACL shapes (all recorded as known generator bugs). Syft's digest setting must be comma-separated: with spaces it silently dropped SHA-256 and broke its SPDX 2.3.
+**Formats and validation:** BuildKit's SPDX 2.3 lacks the SHA-1 file checksums SPDX 2.3 requires (its scanner is Syft, so it isn't an independent generator); Syft's and cdxgen's SPDX 3.0.1 fail the official SHACL shapes (all recorded as known generator bugs); large SPDX 3 files are only schema-checked, and the report says so. Syft's digest setting must be comma-separated: with spaces it silently dropped SHA-256 and broke its SPDX 2.3. Only Trivy's and cdxgen's image SBOMs record a digest of the image; Syft's names it by tag and commit.
 
 **Vulnerabilities (iteration 2): the SBOM you scan decides what you find.** Three scanners on three image SBOMs of the same image (python, findings):
 
 | SBOM | Grype | Trivy | OSV-Scanner |
 |---|---|---|---|
-| Syft's | **351** | 40 | 41 |
-| Trivy's | 40 | **351** | 41 |
-| cdxgen's | 157 | 40 | **163** |
+| Syft's | **348** | 34 | 35 |
+| Trivy's | 34 | **345** | 35 |
+| cdxgen's | **348** | 34 | **351** |
 
-- **OS packages only match in the scanner's own family.** Debian publishes advisories per *source* package (`krb5`), SBOMs list binary packages (`libgssapi-krb5-2`). Trivy records the source in its own property, Syft in a purl qualifier (`upstream=`), cdxgen not at all; each scanner reads only its own way. OSV-Scanner reads Debian packages only with `distro=debian-13` (cdxgen), not `debian-13.7` (Syft, Trivy). Language packages match everywhere: the purl is enough.
-- So the gate takes the **union** of all scanners on all image SBOMs. Every planted CVE (Log4Shell, Spring4Shell, PyYAML, lodash…) is found by all three scanners, except on cdxgen's Rust SBOM (cdxgen can't read `cargo auditable` data).
+- **OS packages match only when the SBOM records the source package the way the scanner reads it.** Debian publishes advisories per *source* package (`krb5`), SBOMs list binary packages (`libgssapi-krb5-2`). Trivy records the source in its own property, Syft as a purl qualifier (`upstream=`), cdxgen as separate `arch=source` components. OSV-Scanner reads Debian packages only with `distro=debian-13` (cdxgen), not `debian-13.7` (Syft, Trivy). Findings on cdxgen's source components are moved onto the binary packages built from them, so a flaw is counted once. Language packages match everywhere: the purl is enough.
+- So the gate takes the **union** of all scanners on all image SBOMs. Every planted CVE is found by all three scanners, except on cdxgen's Rust SBOM.
+- **Severity:** Grype and Trivy report the distribution's or the advisory's own rating (Debian rates several disputed glibc CVEs "negligible"); OSV-Scanner only has a CVSS score. The report uses the vendor rating and falls back to OSV's only when there is none.
 - **False positives:** OSV-Scanner reads Syft's Go stdlib version `go1.27.4` instead of the purl's `1.27.4` and reports all 164 Go stdlib advisories since 2021.
-- **Prioritising:** java has 133 critical/high findings, 101 in packages that actually ran (runtime SBOM) and 6 in CISA KEV; most Debian findings have no fix yet, so they're reported, not gated.
+- **Prioritising:** java has 110 critical/high findings, 96 in packages that ran (runtime SBOM) and 6 in CISA KEV. For Go and Rust "ran" means compiled in, not called: the jwt-go CVE is in token verification, which the app never does (govulncheck would show that).
 - **The gate found a real one:** `pip` shipped in the Python venv with a fixable high CVE, and the runtime SBOM showed it never runs, so it's removed instead of accepted. Everything else blocking is planted and accepted until 2027-05-17.
+
+**An independent review of each app's report** (one reviewer per app, recomputing every number from the raw files) found the numbers right, and these errors, now fixed:
+- **Log4Shell wasn't reachable.** Spring Boot's default Logback took the logging, so log4j-core 2.14.1 shipped but never formatted a message; the scanners were right by version, the app wasn't vulnerable. Logging now goes through log4j-core: the runtime SBOM shows `JndiLookup` and `MessagePatternConverter` loading.
+- **The runtime SBOM missed libraries opened through symlinks** (`libsqlite3.so.0` → `.so.0.8.6`) and script interpreters (`#!`); Java's class-load log was overwritten by the health check's second JVM.
+- **The same flaw was counted twice** on Debian source and binary packages, and the highest severity of any scanner (OSV's CVSS) turned Debian-negligible glibc CVEs into "critical".
 
 ## Speed
 
