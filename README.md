@@ -97,8 +97,10 @@ apps/<app>/
   sbom-expect-skip.txt    documented exceptions: "<sbom file> <purl|*> <reason>" (optional)
   sbom-invalid-ok.txt     known generator bugs that fail validation: "<file> <reason>"
   vuln-expect.txt         planted CVEs the scanners must find: "<CVE> <note>"
-  vuln-accept.txt         accepted risks for the gate: "<package | prefix* | ID> <expires> <reason>"
-  runtime-probes.txt      requests sent while recording the runtime SBOM
+  vuln-accept.txt         accepted risks for the gate: "<vulnerability ID> <expires> <reason>", one per CVE,
+                          so a new CVE in a pinned package blocks the gate (a package key also works)
+  runtime-probes.txt      requests sent while recording the runtime SBOM ("METHOD PATH [BODY] [| Header: value]");
+                          they cover the planted routes; a probe with no response fails the step
   scancode-paths.txt      paths in the image ScanCode scans (python, node, java)
   .dockerignore
 ```
@@ -176,7 +178,7 @@ The slim images shipped 87–140 OS packages; distroless ships 6–38. Distroles
 | cdxgen's | **348** | 34 | **351** |
 
 - **OS packages match only when the SBOM records the source package the way the scanner reads it.** Debian publishes advisories per *source* package (`krb5`), SBOMs list binary packages (`libgssapi-krb5-2`). Trivy records the source in its own property, Syft as a purl qualifier (`upstream=`), cdxgen as separate `arch=source` components. OSV-Scanner reads Debian packages only with `distro=debian-13` (cdxgen), not `debian-13.7` (Syft, Trivy). Findings on cdxgen's source components are moved onto the binary packages built from them, so a flaw is counted once. Language packages match everywhere: the purl is enough.
-- So the gate takes the **union** of all scanners on all image SBOMs. Every planted CVE is found by all three scanners, except on cdxgen's Rust SBOM.
+- So the gate takes the **union** of all scanners on all image SBOMs, and each report shows **OS-package coverage** per scanner and SBOM: a pair that sees 0 of the Debian packages, or Trivy's "no OS in the SBOM" (cdxgen's image SBOM records no operating system), is visible instead of looking like a clean result. Java's JRE (Temurin, an Adoptium package) matches no Debian advisory: no scanner checks it. Every planted CVE is found by all three scanners, except on cdxgen's Rust SBOM.
 - **Severity:** Grype and Trivy report the distribution's or the advisory's own rating (Debian rates several disputed glibc CVEs "negligible"); OSV-Scanner only has a CVSS score. The report uses the vendor rating and falls back to OSV's only when there is none.
 - **False positives:** OSV-Scanner reads Syft's Go stdlib version `go1.27.4` instead of the purl's `1.27.4` and reports all 164 Go stdlib advisories since 2021.
 - **Prioritising:** java has 110 critical/high findings, 96 in packages that ran (runtime SBOM) and 6 in CISA KEV. For Go and Rust "ran" means compiled in, not called: the jwt-go CVE is in token verification, which the app never does (govulncheck would show that).

@@ -1,7 +1,8 @@
 # Requests sent while the runtime SBOM records which files the app uses.
 # Format: METHOD PATH [BODY], optionally " | Header: value". No external network:
 # /fetch (SSRF) asks the app for its own /health. /ping (command injection) needs
-# a shell, which the distroless images do not have, so it is expected to fail.
+# a shell, which the distroless images do not have: the command fails (the app may
+# still answer 200 with the error in its JSON; the strace log shows the failed exec).
 GET /health
 GET /greet?name=alice
 GET /hash?value=abc
