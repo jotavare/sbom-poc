@@ -189,7 +189,7 @@ The slim images shipped 87–140 OS packages; distroless ships 6–38. Distroles
 
 ## Speed
 
-Full CI run: about 5 minutes for all five apps, vulnerability scan included (jobs 160–270 s; Java is the slowest).
+Full CI run: about 3–4 minutes for all five apps, vulnerability scan included (jobs 130–200 s; Java is the slowest).
 
 | Change | Effect |
 |---|---|
