@@ -87,6 +87,7 @@ jobs:
       # saved copy; scan-vulns.sh refreshes them only when a day old, and the
       # save step below stores a refreshed copy once (keyed by the DB versions)
       - name: Restore vulnerability DBs
+        id: vulndb
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: sbom/.cache/vulndb
@@ -111,7 +112,7 @@ jobs:
         run: make vulns APP="$APP"
 
       - name: Save vulnerability DBs (when refreshed)
-        if: ${{ !cancelled() && hashFiles('sbom/.cache/vulndb/versions.txt') != '' }}
+        if: ${{ !cancelled() && hashFiles('sbom/.cache/vulndb/versions.txt') != '' && steps.vulndb.outputs.cache-matched-key != format('vulndb-{0}', hashFiles('sbom/.cache/vulndb/versions.txt')) }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: sbom/.cache/vulndb

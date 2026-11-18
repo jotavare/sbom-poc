@@ -181,7 +181,7 @@ Distroless also removes the shell: the planted command injection (`sh -c "ping �
 
 ## Speed
 
-Full CI run: about 7 minutes for all five apps, vulnerability scan included (Java, the slowest: 439 s).
+Full CI run: about 5 minutes for all five apps, vulnerability scan included (jobs 160–270 s; Java is the slowest).
 
 | Change | Effect |
 |---|---|
@@ -189,7 +189,7 @@ Full CI run: about 7 minutes for all five apps, vulnerability scan included (Jav
 | Static strace cached by its Dockerfile hash | runtime SBOM step 60–70 s → 3–11 s (building strace was almost all of it) |
 | Validation batched: one container per validator | instead of ~20 container starts per app |
 | Trivy DB cache keyed by day | Java's ~920 MB saved once a day, not every run |
-| Vulnerability DBs (Grype ~3 GB, Trivy) shared by the three scanners, cached by day; scanners run in parallel | vulnerability step 90–140 s → 25–45 s (+ 30–55 s cache restore) |
+| Vulnerability DBs (Grype ~3 GB, Trivy) shared by the three scanners; refreshed only when a day old, cached under their versions (saved once per refresh); scanners run in parallel | vulnerability step 90–140 s → 13–19 s (+ 12–29 s cache restore) |
 | cdxgen release binary, no tool image | the first CI run had hung 10+ min on `docker build --output type=local`; that pattern is no longer used anywhere |
 | `jsonschema-rs` for large SPDX 3 files | Java's validation: ~24 min → seconds |
 | Persistent Trivy cache (+ `actions/cache`) | Trivy's Java DB downloaded once (was ~190 s per scan) |
