@@ -7,7 +7,8 @@
 #   SBOMs     stage 3 image SBOMs from Syft, Trivy and cdxgen, and the stage 2
 #             native build SBOM: does the generator change what is found?
 #   Output    sbom/<app>/vulns/<scanner>-<sbom>.json (raw), findings.json
-#             (normalised, see vulns.jq), grype-syft-image.sarif, and
+#             (normalised, see vulns.jq), grype-syft-image.sarif (Grype's own),
+#             vulns.sarif (the merged findings, one result each: vulns-sarif.jq), and
 #             sbom/<app>/reports/vulns.md:
 #               - findings per scanner and SBOM
 #               - scanner agreement on the image
@@ -142,6 +143,21 @@ jq -L "$HERE" --argjson runtime "$RUNTIME_JSON" --argjson accept "$ACCEPT_JSON" 
              accepted: ([$accept[] | . as $a | select($a.valid and ($a.key == $name or ($f.ids | index($a.key) != null)
                                  or (($a.key | endswith("*")) and ($name | startswith($a.key | rtrimstr("*"))))))][0].key // null)})' \
   "$OUT/findings.json" > "$OUT/gate.json"
+
+# --- SARIF of the merged findings, one result each (vulns-sarif.jq) ----------------
+case "$APP" in
+  python) manifest=(pypi "$APPDIR/requirements.txt") ;;
+  node)   manifest=(npm "$APPDIR/package-lock.json") ;;
+  go)     manifest=(golang "$APPDIR/go.mod") ;;
+  java)   manifest=(maven "$APPDIR/pom.xml") ;;
+  rust)   manifest=(cargo "$APPDIR/Cargo.lock") ;;
+  *)      manifest=(none "$APPDIR/Dockerfile") ;;
+esac
+FILES_JSON="$(jq -n --arg t "${manifest[0]}" --arg uri "${manifest[1]}" --rawfile txt "${manifest[1]}" \
+  --arg d "$APPDIR/Dockerfile" --rawfile dtxt "$APPDIR/Dockerfile" \
+  '{($t): {uri: $uri, lines: ($txt | split("\n"))}, deb: {uri: $d, lines: ($dtxt | split("\n"))}}')"
+jq -L "$HERE" --arg app "$APP" --argjson accept "$ACCEPT_JSON" --argjson files "$FILES_JSON" \
+  -f "$HERE/vulns-sarif.jq" "$OUT/gate.json" > "$OUT/vulns.sarif"
 
 # --- 4. report ---------------------------------------------------------------------
 label() { case "$1" in native-build) echo "\`$1.cdx.json\` (2 build)" ;; *) echo "\`$1.cdx.json\` (3 image)" ;; esac; }

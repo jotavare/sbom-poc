@@ -71,6 +71,7 @@ make infra-down              # remove the local registry + BuildKit builder
 
 - CI ([`sbom.yml`](.github/workflows/sbom.yml)) runs **the same `make` targets** as local runs. Tools run as containers or binaries pinned by digest or checksum; actions pinned by commit SHA; read-only token; runner pinned to `ubuntu-26.04` (hosted runner images can't be pinned by digest).
 - Every tool call has a timeout and its own log (uploaded with the artifacts).
+- Vulnerabilities also appear in the repository's **Security → Code scanning** tab: CI uploads `vulns.sarif` (SARIF 2.1.0, written by `scripts/vulns-sarif.jq` from the merged findings, one result per package and CVE, pointing at the file that declares the package). GitHub is only the viewer: the findings, the gate and the file are the pipeline's own, and the SARIF is in every run's artifacts for any other viewer.
 - ScanCode ([`scancode.yml`](.github/workflows/scancode.yml)) runs only by hand: it's slow and a one-off analysis.
 
 ## The apps
