@@ -85,6 +85,11 @@ older_than_max() {  # <ISO timestamp or empty>: true if missing or too old
   if older_than_max "$updated"; then
     run "$TRIVY_IMAGE" --cache-dir /db/trivy image --download-db-only --no-progress > "$OUT/logs/trivy-db.log" 2>&1
   else echo "trivy DB updated $updated: fresh enough" > "$OUT/logs/trivy-db.log"; fi
+  # the DB versions in use: CI keys its DB cache on this file, so a refreshed DB
+  # is saved once and restored by later runs
+  printf 'grype %s\ntrivy %s\n' \
+    "$(run "${GRYPE_ENV[@]}" "$GRYPE_IMAGE" db status -o json 2> /dev/null | jq -r '.built // empty' || true)" \
+    "$(jq -r '.UpdatedAt // empty' "$DB/trivy/db/metadata.json" 2> /dev/null || true)" > "$DB/versions.txt"
 ) 9> "$DB/lock"
 echo "vulnerability databases ready ($((SECONDS - t0)) s)"
 
