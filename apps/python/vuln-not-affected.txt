@@ -1,0 +1,16 @@
+# Reviewed findings that do NOT apply to what ships: "<vulnerability ID> <package without version | *> <reason, with its source>".
+# They are shown in the report but left out of the counts, the gate and the SARIF (a minimal, hand-written VEX).
+# Each entry was checked against the source named in it; remove it if that source changes.
+CVE-2026-95619 deb/debian/libgcc-s1 libstdc++ code (aligned operator new); libgcc-s1 contains only libgcc_s, matched through the shared gcc-14 source package (Debian tracker, gcc-14)
+CVE-2026-102010 deb/debian/libgcc-s1 libstdc++ code (erase_if); libgcc-s1 contains only libgcc_s, matched through the shared gcc-14 source package (Debian tracker, gcc-14)
+CVE-2026-95619 deb/debian/libgomp1 libstdc++ code; libgomp1 is the OpenMP runtime, matched through the shared gcc-14 source package
+CVE-2026-102010 deb/debian/libgomp1 libstdc++ code; libgomp1 is the OpenMP runtime, matched through the shared gcc-14 source package
+CVE-2026-95619 deb/debian/gcc-14-base libstdc++ code; gcc-14-base contains only documentation, matched through the shared gcc-14 source package
+CVE-2026-102010 deb/debian/gcc-14-base libstdc++ code; gcc-14-base contains only documentation, matched through the shared gcc-14 source package
+CVE-2026-76642 deb/debian/libuuid1 util-linux program code (mount helpers / nsenter); libuuid1 contains only the UUID library, matched through the util-linux source package
+CVE-2026-78408 deb/debian/libuuid1 util-linux program code (mount helpers / nsenter); libuuid1 contains only the UUID library, matched through the util-linux source package
+CVE-2026-78409 deb/debian/libuuid1 util-linux program code (mount helpers / nsenter); libuuid1 contains only the UUID library, matched through the util-linux source package
+CVE-2026-78410 deb/debian/libuuid1 util-linux program code (mount helpers / nsenter); libuuid1 contains only the UUID library, matched through the util-linux source package
+CVE-2026-39113 deb/debian/libsqlite3-0 Debian: not affected in trixie, the vulnerable code was never in a Debian release (https://security-tracker.debian.org/tracker/CVE-2026-39113); reported by OSV-Scanner only
+CVE-2026-119586 deb/debian/libsqlite3-0 in the sqlite3 command-line shell, which is not in the image; only the library ships (https://security-tracker.debian.org/tracker/CVE-2026-119586)
+CVE-2025-69720 deb/debian/libncursesw6 in the ncurses infocmp program, which is not in the image; only the library ships

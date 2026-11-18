@@ -1,6 +1,7 @@
 # Planted vulnerabilities the scanners must find: "<CVE> <note>".
-# The build fails if no scanner finds one on the analyzed image SBOM.
-CVE-2020-14343 pyyaml 5.3.1: FullLoader can run arbitrary code (the app's own yaml.load with Loader=yaml.Loader is unsafe in every version)
-CVE-2023-30861 flask 2.0.3: session cookie disclosure
-CVE-2024-34069 werkzeug 2.0.3: debugger RCE
-CVE-2023-43804 urllib3 1.26.5: cookie leak on redirect
+# The build fails if no scanner finds one on an image SBOM. The note says whether
+# the app really reaches the vulnerable code (checked against the source).
+CVE-2020-14343 pyyaml 5.3.1 (FullLoader code execution). The app's own yaml.load(Loader=yaml.Loader) on POST /config is unsafe in any version: reachable
+CVE-2023-30861 flask 2.0.3 (session cookie disclosure): needs sessions, which the app doesn't use; version match only
+CVE-2024-34069 werkzeug 2.0.3 (debugger RCE): needs debug mode, which is off under gunicorn; version match only
+CVE-2023-43804 urllib3 1.26.5 (cookie leak on redirect): urllib3 is used by GET /fetch; reachable if a redirect carries a Cookie header

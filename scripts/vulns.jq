@@ -35,11 +35,16 @@ def cvss_name: (tonumber? // null) as $s
 # src: a Debian SOURCE package (cdxgen lists them, "?arch=source", next to the
 # binary packages); scan-vulns.sh moves such findings onto the binary packages
 # built from that source, so one flaw is not counted twice.
-def finding($ids; $sev; $fix; $fixed; $epss; $kev; $purl):
+# vendor: ratings by who rated it ({"debian": "low", "ghsa": "high", "nvd": ...}),
+# where the scanner says so. Used to prefer the package ecosystem's own rating
+# over a CVSS score (scan-vulns.sh).
+def finding($ids; $sev; $fix; $fixed; $epss; $kev; $purl; $vendor):
   {scanner: $ARGS.named.scanner, sbom: $ARGS.named.sbom,
    pkg: ($purl | norm_purl), src: ($purl | test("[?&]arch=source")),
    ids: ($ids | map(aliases[.] // .) | unique), id: ($ids | canon),
-   sev: $sev, fix: ($fix | map(sub("^[<>=~^ ]+"; ""))), fixed: $fixed, epss: $epss, kev: $kev};
+   sev: $sev, vendor: $vendor, fix: ($fix | map(sub("^[<>=~^ ]+"; ""))), fixed: $fixed, epss: $epss, kev: $kev};
+
+def num_sev: {"1": "low", "2": "medium", "3": "high", "4": "critical"}[tostring] // null;
 
 # version-aware sort key ("2.10" after "2.9")
 def vkey: [scan("[0-9]+") | tonumber];
@@ -53,7 +58,11 @@ def grype:
             ($v.fix.state == "fixed");
             ([$v.epss[]?.epss] | max);
             (($v.knownExploited // []) | length > 0);
-            .artifact.purl);
+            .artifact.purl;
+            # Grype matched a GitHub advisory: that is GHSA's rating. In a distro
+            # namespace (debian:...) Grype falls back to CVSS when the distro
+            # has not rated the CVE, so it is not treated as the distro's rating.
+            (if ($v.namespace // "") | startswith("github:") then {ghsa: ($v.severity // "" | sev_name)} else {} end));
 
 def trivy:
   .Results[]?.Vulnerabilities[]? | select(.PkgIdentifier.PURL != null)
@@ -62,7 +71,8 @@ def trivy:
             ((.FixedVersion // "") | split(", ") | map(select(. != "")));
             (.Status == "fixed" or ((.FixedVersion // "") != ""));
             null; null;
-            .PkgIdentifier.PURL);
+            .PkgIdentifier.PURL;
+            ((.VendorSeverity // {}) | with_entries(.value |= num_sev) | with_entries(select(.value != null))));
 
 def osv:
   .results[]?.packages[]? | select(.package.purl != null) | . as $p
@@ -75,7 +85,7 @@ def osv:
   | finding(($g.aliases // $g.ids);
             ($g.max_severity // "" | cvss_name);
             $fix; ($fix | length > 0); null; null;
-            $p.package.purl);
+            $p.package.purl; {});
 
 def findings:
   if $ARGS.named.scanner == "grype" then grype

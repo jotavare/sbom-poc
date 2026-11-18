@@ -163,8 +163,11 @@ gen_syft() {
   # File digests: SHA-1 (SPDX 2.3 requires it for files) and SHA-512 (BSI
   # TR-03183-2 requires SHA-512 for deployable components), besides SHA-256.
   # (comma-separated: with spaces Syft keeps only SHA-1 and its SPDX 2.3 turns invalid)
+  # The image SBOM's version is the image's manifest digest (as Syft does for
+  # registry images), so it is bound to the exact image (scripts/image-binding.jq)
+  local img=(--source-name "$NAME" --source-version "$(jq -r .manifest_digest "$OUT/artifact.json")" --source-supplier "$SUPPLIER")
   step syft-image run_tool -e SYFT_FILE_METADATA_DIGESTS=sha1,sha256,sha512 \
-    "$SYFT_IMAGE" scan -v docker-archive:/cache/image.tar "${common[@]}" \
+    "$SYFT_IMAGE" scan -v docker-archive:/cache/image.tar "${img[@]}" \
     -o cyclonedx-json=/out/syft-image.cdx.json -o spdx-json=/out/syft-image.spdx.json \
     -o spdx-json@3.0=/out/syft-image.spdx3.json \
     -o syft-json=/cache/syft-image.syft.json   # file ownership, used by runtime-sbom.sh

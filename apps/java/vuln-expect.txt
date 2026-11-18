@@ -1,6 +1,7 @@
 # Planted vulnerabilities the scanners must find: "<CVE> <note>".
-# The build fails if no scanner finds one on the analyzed image SBOM.
-CVE-2021-44228 log4j-core 2.14.1: Log4Shell
-CVE-2021-45046 log4j-core 2.14.1: Log4Shell, incomplete fix
-CVE-2022-1471 snakeyaml 1.29: unsafe deserialization
-CVE-2022-22965 spring-beans 5.3.13: Spring4Shell
+# The build fails if no scanner finds one on an image SBOM. The note says whether
+# the app really reaches the vulnerable code (checked against the source).
+CVE-2021-44228 log4j-core 2.14.1 (Log4Shell): GET /greet logs name and User-Agent through log4j-core with lookups on; reachable
+CVE-2021-45046 log4j-core 2.14.1 (incomplete Log4Shell fix): adds nothing beyond CVE-2021-44228 with the default pattern; reachable through the same path
+CVE-2022-1471 snakeyaml 1.29 (unsafe deserialization): POST /config calls new Yaml().load(body); reachable
+CVE-2022-22965 spring-beans 5.3.13 (Spring4Shell): the exploit needs a WAR on Tomcat; this app is an executable JAR (spring.io advisory); version match only

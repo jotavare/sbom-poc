@@ -1,5 +1,6 @@
 # Planted vulnerabilities the scanners must find: "<CVE> <note>".
-# The build fails if no scanner finds one on the analyzed image SBOM.
-CVE-2020-26160 dgrijalva/jwt-go 3.2.0: audience check bypass
-CVE-2022-32149 golang.org/x/text 0.3.7: ReDoS in language tags
-CVE-2019-11254 gopkg.in/yaml.v2 2.2.7: CPU exhaustion
+# The build fails if no scanner finds one on an image SBOM. The note says whether
+# the app really reaches the vulnerable code (checked against the source).
+CVE-2020-26160 dgrijalva/jwt-go 3.2.0 (audience check bypass in MapClaims.VerifyAudience): the app only signs tokens; version match only
+CVE-2022-32149 golang.org/x/text 0.3.7 (CPU exhaustion in ParseAcceptLanguage): GET /lang parses the Accept-Language header; reachable
+CVE-2019-11254 gopkg.in/yaml.v2 2.2.7 (CPU exhaustion in Unmarshal): POST /config unmarshals the body; reachable

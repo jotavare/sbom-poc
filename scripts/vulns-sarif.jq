@@ -54,8 +54,8 @@ def needle: (. | ptype) as $t | (. | pname) as $n
         ruleId: .id,
         level: (.sev | level),
         message: {text: ([
-          "\(.pkg | pname) \(.pkg | pversion) (\(.pkg | ptype)): \(.id), \(.sev).",
-          (if .fixed then "Fixed in: \(if (.fix | length) > 0 then (.fix | join(", ")) else "a newer version" end)." else "No fix yet." end),
+          "\(.pkg | pname) \(.pkg | pversion) (\(.pkg | ptype)): \(.id), \(.sev) (rated by \(.sev_source // "scanner")).",
+          (if .fixed then "Fixed in: \(if (.fix | length) > 0 then (.fix | join(", ")) else "a newer version" end)\(if .major_upgrade then " (a newer major version)" else "" end)." else "No fix yet." end),
           (if .kev then "In CISA KEV (actively exploited)." else empty end),
           (if .runs == true then "The package ran (runtime SBOM)." elif .runs == false then "The package did not run (runtime SBOM)." else empty end),
           (if .epss then "EPSS \(.epss * 1000 | round / 10)%." else empty end),

@@ -1,4 +1,5 @@
 # Planted vulnerabilities the scanners must find: "<CVE> <note>".
-# The build fails if no scanner finds one on the analyzed image SBOM.
-CVE-2022-24713 regex 1.5.4: ReDoS
-CVE-2021-25900 smallvec 1.6.0: buffer overflow in insert_many
+# The build fails if no scanner finds one on an image SBOM. The note says whether
+# the app really reaches the vulnerable code (checked against the source).
+CVE-2022-24713 regex 1.5.4 (ReDoS when compiling untrusted patterns): GET /match compiles the user's pattern; reachable
+CVE-2021-25900 smallvec 1.6.0 (buffer overflow in insert_many): the app only collects into a SmallVec; version match only

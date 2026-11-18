@@ -161,6 +161,7 @@ done | jq -s -L "$HERE" --argjson srcmap "$SRCMAP_JSON" 'include "vulns";
       else . end)
   | group_by([.scanner, .sbom, .pkg, .id]) | map(
     .[0] + {ids: (map(.ids[]) | unique), sev: (max_by(.sev | sev_rank) | .sev),
+            vendor: (map(.vendor // {}) | add),
             fixed: any(.fixed), fix: (map(.fix[]) | unique),
             epss: ([.[].epss | numbers] | max), kev: any(.kev == true)})' > "$OUT/findings.json"
 
@@ -176,28 +177,58 @@ ACCEPT_JSON="$( { grep -vE '^\s*(#|$)' "$APPDIR/vuln-accept.txt" 2> /dev/null ||
 EXPECT_JSON="$( { grep -vE '^\s*(#|$)' "$APPDIR/vuln-expect.txt" 2> /dev/null || true; } \
   | jq -R -s -c 'split("\n") | map(select(length > 0) | capture("^(?<id>\\S+)\\s*(?<note>.*)$"))')"
 
+# reviewed "not affected" findings: "<ID> <package without version | *> <reason, with its source>"
+NOTAFF_JSON="$( { grep -vE '^\s*(#|$)' "$APPDIR/vuln-not-affected.txt" 2> /dev/null || true; } \
+  | jq -R -s -c 'split("\n") | map(select(length > 0) | capture("^(?<id>\\S+)\\s+(?<pkg>\\S+)\\s+(?<reason>.*)$"))')"
+
 # union of all scanners on all image SBOMs, per (package, vulnerability)
-jq -L "$HERE" --argjson runtime "$RUNTIME_JSON" --argjson accept "$ACCEPT_JSON" 'include "vulns";
+jq -L "$HERE" --argjson runtime "$RUNTIME_JSON" --argjson accept "$ACCEPT_JSON" --argjson notaff "$NOTAFF_JSON" 'include "vulns";
   [.[] | select(.sbom | endswith("-image"))] | group_by([.pkg, .id]) | map(
-    # Severity: Grype and Trivy use the rating of the distribution or advisory
-    # itself (Debian "negligible", GHSA "moderate"); OSV-Scanner only gives a
-    # CVSS score (from NVD for Debian CVEs). The vendor rating wins; the highest of
-    # those if they differ; the OSV CVSS rating only when no other is known.
-    # Fix versions likewise: Grype/Trivy first; from OSV, its highest fixed version.
-    ([.[] | select(.scanner != "osv" and .sev != "unknown")]) as $vendor
+    # Severity: the rating of the package ecosystem itself wins: Debian for
+    # Debian packages, the GitHub advisory (GHSA) for language packages, as
+    # recorded by Trivy (VendorSeverity) or Grype (a GitHub match). Without one,
+    # the highest scanner rating is used and marked: that is usually a CVSS score
+    # (NVD, a CNA, CISA-ADP) or another distribution, often higher than the
+    # vendor would rate it (OpenSSL rates many CVEs "Low" that score 7.5).
+    # Fix versions: Grype/Trivy first; from OSV, its highest fixed version.
+    ((.[0].pkg | startswith("deb/")) as $deb | (if $deb then "debian" else "ghsa" end)) as $eco
+    | (map(.vendor // {}) | add // {}) as $vend
+    | ([.[] | select(.scanner != "osv" and .sev != "unknown")]) as $rated
     | ([.[] | select(.scanner != "osv") | .fix[]] | unique) as $vfix
     | .[0] + {scanners: (map(.scanner) | unique), pairs: (map("\(.scanner)@\(.sbom)") | unique), ids: (map(.ids[]) | unique),
             sevs: (group_by(.scanner) | map({key: .[0].scanner, value: (max_by(.sev | sev_rank) | .sev)}) | from_entries),
-            sev: (if ($vendor | length) > 0 then ($vendor | max_by(.sev | sev_rank) | .sev) else (max_by(.sev | sev_rank) | .sev) end),
+            vendor: $vend,
+            sev: (if $vend[$eco] then $vend[$eco]
+                  elif ($rated | length) > 0 then ($rated | max_by(.sev | sev_rank) | .sev)
+                  else (max_by(.sev | sev_rank) | .sev) end),
+            sev_source: (if $vend[$eco] then (if $eco == "debian" then "Debian" else "GitHub advisory" end)
+                         else "scanner (no \(if $eco == "debian" then "Debian" else "GitHub advisory" end) rating)" end),
             fixed: any(.fixed),
             fix: (if ($vfix | length) > 0 then ($vfix | sort_by(vkey))
                   else ([.[].fix[]] | unique | sort_by(vkey) | if length > 0 then [last] else [] end) end),
             epss: ([.[].epss | numbers] | max), kev: any(.kev == true)})
   | map(. as $f | (.pkg | split("@")[0]) as $name
       | . + {runs: (if $runtime == null then null else ($runtime | index($f.pkg)) != null end),
+             # a fix only in a newer major version than the one shipped
+             major_upgrade: (($f.pkg | capture("@(?<v>[0-9]+)") .v // null) as $maj
+                             | if $maj == null or ($f.fix | length) == 0 then false
+                               else all($f.fix[]; (capture("^v?(?<m>[0-9]+)").m // "0") != $maj) end),
+             not_affected: ([$notaff[] | select((.id as $i | $f.ids | index($i)) and (.pkg == "*" or .pkg == $name))][0].reason // null),
              accepted: ([$accept[] | . as $a | select($a.valid and ($a.key == $name or ($f.ids | index($a.key) != null)
                                  or (($a.key | endswith("*")) and ($name | startswith($a.key | rtrimstr("*"))))))][0].key // null)})' \
-  "$OUT/findings.json" > "$OUT/gate.json"
+  "$OUT/findings.json" > "$OUT/gate.all.json"
+# EPSS for findings no scanner gave one (OSV-Scanner has none): FIRST's API, one call
+missing=$(jq -r '[.[] | select(.epss == null) | .id | select(startswith("CVE-"))] | unique | .[0:100] | join(",")' "$OUT/gate.all.json")
+EPSS_JSON='{}'
+if [[ -n "$missing" ]]; then
+  EPSS_JSON=$(curl -fsS -m 30 "https://api.first.org/data/v1/epss?cve=$missing&limit=100" 2> /dev/null \
+    | jq -c '[.data[]? | {key: .cve, value: (.epss | tonumber)}] | from_entries' 2> /dev/null || echo '{}')
+fi
+# not-affected findings are kept apart (gate.not-affected.json), not counted
+jq --argjson e "$EPSS_JSON" 'map(.epss = (.epss // $e[.id]))' "$OUT/gate.all.json" > "$OUT/gate.all.tmp" && mv "$OUT/gate.all.tmp" "$OUT/gate.all.json"
+jq '[.[] | select(.not_affected == null)]' "$OUT/gate.all.json" > "$OUT/gate.json"
+jq '[.[] | select(.not_affected != null)]' "$OUT/gate.all.json" > "$OUT/gate.not-affected.json"
+rm -f "$OUT/gate.all.json"
 
 # --- SARIF of the merged findings, one result each (vulns-sarif.jq) ----------------
 case "$APP" in
@@ -321,23 +352,65 @@ echo
 echo "### What to fix first (image)"
 echo
 jq -r 'map(select(.sev == "critical" or .sev == "high")) as $ch
-  | "**\($ch | length)** critical/high findings; **\($ch | map(select(.fixed)) | length)** have a fix; **\($ch | map(select(.runs == true)) | length)** are in packages that ran (runtime SBOM); **\($ch | map(select(.kev)) | length)** are in CISA KEV (actively exploited)."' "$OUT/gate.json"
+  | ($ch | map(select(.sev_source | startswith("scanner")))) as $unrated
+  | "**\($ch | length)** critical/high findings (\($ch | length - ($unrated | length)) rated so by Debian or the GitHub advisory, \($unrated | length) only by a scanner score); **\($ch | map(select(.fixed)) | length)** have a fix (\($ch | map(select(.fixed and .major_upgrade)) | length) of them only in a newer major version); **\($ch | map(select(.runs == true)) | length)** are in packages that ran (runtime SBOM). **\(map(select(.kev)) | map(.id) | unique | length)** distinct CVEs are in CISA KEV (actively exploited), whatever their severity."' "$OUT/gate.json"
 echo
-echo "Order: known exploited (KEV), then the package ran, then severity, then EPSS (probability of exploitation in the next 30 days). Severity is the rating Grype and Trivy report (the distribution's or the advisory's own, e.g. Debian \"negligible\"); OSV-Scanner's CVSS-based rating is used only when they have none. **Ran** comes from the runtime SBOM: the package's files were used while the probes ran. For Go and Rust that means the module is compiled into the binary, not that the vulnerable function was called (that needs a reachability tool, e.g. govulncheck)."
+echo "Order: known exploited (KEV), then the package ran, then severity, then EPSS (probability of exploitation in the next 30 days; from FIRST when no scanner gave one)."
+echo
+echo "- **Severity** is the package ecosystem's own rating: Debian's for Debian packages, the GitHub advisory's for language packages. Where they have none, the highest scanner rating is used and the *Rated by* column says so: that is a CVSS score (NVD, the CNA, CISA-ADP) or another distribution's rating, often higher than the vendor's (OpenSSL rates many CVEs \"Low\" that score 7.5)."
+echo "- **Ran** comes from the runtime SBOM: the package's files were used while the probes ran. It does not mean the vulnerable function was called. For Go and Rust it means the module is compiled into the binary; reachability needs a tool such as govulncheck."
+echo "- **Fixed in** marks a fix that exists only in a newer major version (a migration, not a patch)."
 echo
 prio="$(jq -r -L "$HERE" 'include "vulns";
-  map(select(.sev == "critical" or .sev == "high"))
+  map(select(.sev == "critical" or .sev == "high" or .kev))
   | sort_by([(if .kev then 0 else 1 end), (if .runs == true then 0 else 1 end), -(.sev | sev_rank), -(.epss // 0)])[]
-  | "| `\(.pkg)` | \(.id) | \(.sev) | \(if .epss then "\(.epss * 1000 | round / 10)%" else "–" end) | \(if .kev then "**yes**" else "" end) | \(if .runs == true then "yes" elif .runs == false then "no" else "?" end) | \(if .fixed then (.fix | join(", ") | if . == "" then "yes" else . end) else "no fix" end) | \(.scanners | join(", ")) |"' "$OUT/gate.json")"
-hdr="| Package | Vulnerability | Severity | EPSS | KEV | Ran | Fixed in | Scanners |"
+  | "| `\(.pkg)` | \(.id) | \(.sev) | \(if (.sev_source | startswith("scanner")) then "scanner score" else .sev_source end) | \(if .epss then "\(.epss * 1000 | round / 10)%" else "–" end) | \(if .kev then "**yes**" else "" end) | \(if .runs == true then "yes" elif .runs == false then "no" else "?" end) | \(if .fixed then (.fix | join(", ") | if . == "" then "yes" else . end) + (if .major_upgrade then " (major upgrade)" else "" end) else "no fix" end) | \(.scanners | join(", ")) |"' "$OUT/gate.json")"
+hdr="| Package | Vulnerability | Severity | Rated by | EPSS | KEV | Ran | Fixed in | Scanners |"
+sep="|---|---|---|---|---|---|---|---|---|"
 if [[ -n "$prio" ]]; then
-  echo "$hdr"; echo "|---|---|---|---|---|---|---|---|"
+  echo "$hdr"; echo "$sep"
   head -15 <<< "$prio"
   echo
   if (( $(wc -l <<< "$prio") > 15 )); then
-    echo "<details><summary>All $(wc -l <<< "$prio") critical/high findings</summary>"; echo
-    echo "$hdr"; echo "|---|---|---|---|---|---|---|---|"; echo "$prio"; echo; echo "</details>"; echo
+    echo "<details><summary>All $(wc -l <<< "$prio") critical/high or known-exploited findings</summary>"; echo
+    echo "$hdr"; echo "$sep"; echo "$prio"; echo; echo "</details>"; echo
   fi
+fi
+
+if jq -e 'length > 0' "$OUT/gate.not-affected.json" > /dev/null; then
+  echo "### Reviewed: not affected (\`vuln-not-affected.txt\`)"
+  echo
+  echo "Findings a scanner reports but that don't apply to what ships, each with the source that says so. They are left out of the counts above, the gate and the SARIF."
+  echo
+  echo "| Package | Vulnerability | Reported as | Scanners | Why not affected |"
+  echo "|---|---|---|---|---|"
+  jq -r 'sort_by(.pkg, .id)[] | "| `\(.pkg)` | \(.id) | \(.sev) | \(.scanners | join(", ")) | \(.not_affected) |"' "$OUT/gate.not-affected.json"
+  echo
+fi
+
+# --- runtimes no scanner checks ------------------------------------------------------
+# Software that ships inside a runtime binary, not as a package any scanner can
+# match: its version is read from the image itself, so the gap is visible.
+IMAGE="${IMAGE:-poc-$APP:local}"
+unscanned=""
+if [[ "$APP" == node ]] && docker image inspect "$IMAGE" > /dev/null 2>&1; then
+  v=$(docker run --rm --network none --entrypoint /nodejs/bin/node "$IMAGE" -p 'JSON.stringify(process.versions)' 2> /dev/null || true)
+  [[ -n "$v" ]] && unscanned=$(jq -r '"| node \(.node) | bundled inside the node binary: OpenSSL \(.openssl), zlib \(.zlib), libuv \(.uv), llhttp \(.llhttp), undici \(.undici // "?"), ICU \(.icu // "?") | [OpenSSL vulnerabilities](https://openssl-library.org/news/vulnerabilities/), [Node.js security releases](https://nodejs.org/en/blog/vulnerability) |"' <<< "$v")
+elif [[ "$APP" == java ]] && docker image inspect "$IMAGE" > /dev/null 2>&1; then
+  v=$(docker run --rm --network none --entrypoint /usr/bin/java "$IMAGE" -version 2>&1 | head -2 | tr '\n' ' ' || true)
+  [[ -n "$v" ]] && unscanned="| Java runtime | \`${v% }\` (a Temurin package: no Debian advisory and no CPE in the SBOMs, so no scanner matches it) | [OpenJDK vulnerability advisories](https://openjdk.org/groups/vulnerability/advisories/) |"
+elif [[ "$APP" == rust ]]; then
+  v=$(jq -r '[.. | objects | to_entries[]? | select(.key == "RUST_VERSION") | .value][0] // empty' "$DIR/buildkit-provenance.json" 2> /dev/null || true)
+  [[ -z "$v" ]] && v=$(grep -oE 'rust:[^@" ]+' "$APPDIR/Dockerfile" | head -1)
+  [[ -n "$v" ]] && unscanned="| Rust toolchain | rustc \`$v\`: std is compiled into the binary but no SBOM lists it | [RustSec advisories for rust/std](https://rustsec.org/categories/) |"
+fi
+if [[ -n "$unscanned" ]]; then
+  echo "### Not checked by any scanner"
+  echo
+  echo "| Component | What ships | Where to check |"
+  echo "|---|---|---|"
+  echo "$unscanned"
+  echo
 fi
 
 echo "### Gate"

@@ -1,0 +1,14 @@
+# Reviewed findings that do NOT apply to what ships: "<vulnerability ID> <package without version | *> <reason, with its source>".
+# They are shown in the report but left out of the counts, the gate and the SARIF (a minimal, hand-written VEX).
+# Each entry was checked against the source named in it; remove it if that source changes.
+CVE-2026-95619 deb/debian/libgcc-s1 libstdc++ code (aligned operator new); libgcc-s1 contains only libgcc_s, matched through the shared gcc-14 source package (Debian tracker, gcc-14)
+CVE-2026-102010 deb/debian/libgcc-s1 libstdc++ code (erase_if); libgcc-s1 contains only libgcc_s, matched through the shared gcc-14 source package (Debian tracker, gcc-14)
+CVE-2026-95619 deb/debian/libgomp1 libstdc++ code; libgomp1 is the OpenMP runtime, matched through the shared gcc-14 source package
+CVE-2026-102010 deb/debian/libgomp1 libstdc++ code; libgomp1 is the OpenMP runtime, matched through the shared gcc-14 source package
+CVE-2026-95619 deb/debian/gcc-14-base libstdc++ code; gcc-14-base contains only documentation, matched through the shared gcc-14 source package
+CVE-2026-102010 deb/debian/gcc-14-base libstdc++ code; gcc-14-base contains only documentation, matched through the shared gcc-14 source package
+CVE-2026-76642 deb/debian/libuuid1 util-linux program code (mount helpers / nsenter); libuuid1 contains only the UUID library, matched through the util-linux source package
+CVE-2026-78408 deb/debian/libuuid1 util-linux program code (mount helpers / nsenter); libuuid1 contains only the UUID library, matched through the util-linux source package
+CVE-2026-78409 deb/debian/libuuid1 util-linux program code (mount helpers / nsenter); libuuid1 contains only the UUID library, matched through the util-linux source package
+CVE-2026-78410 deb/debian/libuuid1 util-linux program code (mount helpers / nsenter); libuuid1 contains only the UUID library, matched through the util-linux source package
+CVE-2026-53434 maven/org.apache.tomcat.embed/tomcat-embed-core affects Tomcat 9.0.83 to 9.0.118 only (Apache advisory, GHSA-4x29-79gh-6v8q); 9.0.55 ships. Grype's version range is wrong

@@ -28,6 +28,11 @@ lc() { tr '[:upper:]' '[:lower:]'; }
 [[ -s "$DIR/artifact.json" ]] || fail "missing $DIR/artifact.json (run: make build APP=$APP)"
 jq -e '.index_digest | startswith("sha256:")' "$DIR/artifact.json" > /dev/null \
   || fail "artifact.json has no image digest"
+# every image SBOM must name this exact image in its generator's digest field
+for f in "$DIR"/*-image.cdx.json; do
+  field=$(jq -r --slurpfile a "$DIR/artifact.json" -L "$(dirname "$0")" 'include "image-binding"; binding($a[0]) // empty' "$f")
+  [[ -n "$field" ]] || fail "$(basename "$f") is not bound to the image: none of its digest fields matches artifact.json"
+done
 [[ -s "$DIR/buildkit-image.spdx.json" ]] || fail "missing BuildKit SBOM attestation"
 
 expected_files() {
