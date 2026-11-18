@@ -185,10 +185,10 @@ gen_trivy() {
 
   for fmt in cyclonedx:cdx spdx-json:spdx; do
     local format="${fmt%%:*}" ext="${fmt##*:}"
-    step "trivy-source-$ext" run_tool "$TRIVY_IMAGE" --no-progress --cache-dir /cache/trivy fs "${skip[@]}" "${src_flags[@]}" \
+    step "trivy-source-$ext" run_tool "$TRIVY_IMAGE" --cache-dir /cache/trivy fs --no-progress "${skip[@]}" "${src_flags[@]}" \
       --file-patterns 'pip:requirements.*\.txt' \
       --format "$format" -o "/out/trivy-source.$ext.json" /src
-    step "trivy-image-$ext" run_tool "$TRIVY_IMAGE" --no-progress --cache-dir /cache/trivy image \
+    step "trivy-image-$ext" run_tool "$TRIVY_IMAGE" --cache-dir /cache/trivy image --no-progress \
       --input /cache/image.tar --format "$format" -o "/out/trivy-image.$ext.json"
   done
 }
