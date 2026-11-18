@@ -1,9 +1,26 @@
-# Accepted risks for the vulnerability gate: "<package | prefix* | ID> <expires YYYY-MM-DD> <reason>".
-# Package = normalised purl without version (as in reports/vulns.md). Expired entries stop applying,
-# so every acceptance is reviewed again. This app is vulnerable ON PURPOSE: its pins are the test data.
-npm/lodash         2027-05-17 planted: 4.17.15, prototype pollution + template injection
-npm/jsonwebtoken   2027-05-17 planted: 8.5.1, no algorithm allow-list
-npm/axios          2027-05-17 planted: 0.21.1
-npm/body-parser    2027-05-17 planted: pinned by express 4.17.1
-npm/path-to-regexp 2027-05-17 planted: pinned by express 4.17.1
-npm/qs             2027-05-17 planted: pinned by express 4.17.1
+# Accepted risks for the vulnerability gate: "<vulnerability ID> <expires YYYY-MM-DD> <reason>".
+# One line per vulnerability, so a NEW CVE in the same package blocks the gate instead of being
+# accepted silently. Expired entries stop applying, so every acceptance is reviewed again.
+# (A package, or a package prefix ending in *, also works as the key, but covers every future CVE.)
+# This app is vulnerable ON PURPOSE: these are known CVEs in its deliberately old pins.
+CVE-2020-8203 2027-05-17 planted, high: npm/lodash@4.17.15
+CVE-2021-23337 2027-05-17 planted, high: npm/lodash@4.17.15
+CVE-2021-3749 2027-05-17 planted, high: npm/axios@0.21.1
+CVE-2022-23539 2027-05-17 old pin, high: npm/jsonwebtoken@8.5.1
+CVE-2022-24999 2027-05-17 old pin, high: npm/qs@6.7.0
+CVE-2024-45296 2027-05-17 old pin, high: npm/path-to-regexp@0.1.7
+CVE-2024-45590 2027-05-17 old pin, high: npm/body-parser@1.19.0
+CVE-2024-52798 2027-05-17 old pin, high: npm/path-to-regexp@0.1.7
+CVE-2025-27152 2027-05-17 old pin, high: npm/axios@0.21.1
+CVE-2026-111181 2027-05-17 old pin, high: npm/body-parser@1.19.0
+CVE-2026-25639 2027-05-17 old pin, high: npm/axios@0.21.1
+CVE-2026-42033 2027-05-17 old pin, high: npm/axios@0.21.1
+CVE-2026-42035 2027-05-17 old pin, high: npm/axios@0.21.1
+CVE-2026-42043 2027-05-17 old pin, high: npm/axios@0.21.1
+CVE-2026-44486 2027-05-17 old pin, high: npm/axios@0.21.1
+CVE-2026-44487 2027-05-17 old pin, high: npm/axios@0.21.1
+CVE-2026-44492 2027-05-17 old pin, high: npm/axios@0.21.1
+CVE-2026-44495 2027-05-17 old pin, high: npm/axios@0.21.1
+CVE-2026-44496 2027-05-17 old pin, high: npm/axios@0.21.1
+CVE-2026-4800 2027-05-17 old pin, high: npm/lodash@4.17.15
+CVE-2026-4867 2027-05-17 old pin, high: npm/path-to-regexp@0.1.7

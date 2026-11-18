@@ -132,7 +132,11 @@ for rel in "${FILES[@]}"; do
   fi
   if (( ok )); then
     result="valid"
-    [[ "$fmt" == *"schema only"* ]] && result="schema valid (SHACL not run)"
+    if [[ "$fmt" == *"schema only"* ]]; then
+      result="schema valid (SHACL not run)"
+      [[ -f "$ALLOW" ]] && grep -qE "^$rel[[:space:]]" "$ALLOW" \
+        && result="schema valid; SHACL not run, and listed as a known SHACL failure (warning)"
+    fi
   else
     # SHACL reports: use the "Message:" lines; otherwise the most repeated line
     # (`|| true`: head closes the pipe early, which pipefail would turn into an error)

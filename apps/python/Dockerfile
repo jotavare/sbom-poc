@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 # Build image: Debian 13's own Python (3.13), the same interpreter the
 # distroless runtime ships at /usr/bin/python3, so the venv built here runs there.
 # debian:13-slim pinned by digest (2026-11-17)

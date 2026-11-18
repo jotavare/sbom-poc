@@ -92,13 +92,20 @@ done
 curl -fsS -o /dev/null "$BASE/health" || { echo "error: app not healthy after 90s" >&2; exit 1; }
 
 log "sending probes ($PROBES)"
-probe_results=()
-while read -r method path body; do
-  [[ -z "${method:-}" || "$method" == \#* ]] && continue
-  code=$(curl -s -o /dev/null -w '%{http_code}' -X "$method" ${body:+--data "$body"} \
-              -H 'Content-Type: application/json' "$BASE$path" || true)
+# Probe lines: "METHOD PATH [BODY]", optionally " | Header: value". An HTTP error
+# is recorded, not a failure (e.g. /ping needs a shell the distroless image
+# doesn't have); no response at all means the app died, which fails the step.
+probe_results=(); no_response=0
+while IFS= read -r line; do
+  [[ -z "${line// /}" || "$line" == \#* ]] && continue
+  hdr=(); if [[ "$line" == *" | "* ]]; then hdr=(-H "${line#* | }"); line="${line%% | *}"; fi
+  read -r method path body <<< "$line"
+  code=$(curl -s -m 20 -o /dev/null -w '%{http_code}' -X "$method" ${body:+--data "$body"} \
+              -H 'Content-Type: application/json' "${hdr[@]}" "$BASE$path" || true)
+  [[ "$code" == 000 ]] && no_response=$((no_response + 1))
   probe_results+=("$method $path -> $code")
 done < "$PROBES"
+(( no_response == 0 )) || { printf '%s\n' "${probe_results[@]}" >&2; echo "error: $no_response probe(s) got no response" >&2; exit 1; }
 sleep 2
 docker stop -t 10 "$NAME" > /dev/null
 docker logs "$NAME" > "$WORK/strace.log" 2>&1 || true   # strace lines + the app's own output
@@ -108,8 +115,17 @@ docker logs "$NAME" > "$WORK/strace.log" 2>&1 || true   # strace lines + the app
 # Keep only SUCCESSFUL calls (result >= 0; failed lookups like ENOENT are not use),
 # then normalise paths ("/usr/local/bin/../lib/x" -> "/usr/local/lib/x").
 # (the first process's lines carry no PID prefix; children's do)
+# A call interrupted by another process is split by strace into
+# "<call>(... <unfinished ...>" and, later, "<... call resumed>) = N": join them
+# per process first, or such calls are lost.
+awk '{
+  pid = ""; if (match($0, /^\[pid +[0-9]+\]/) || match($0, /^[0-9]+ /)) pid = substr($0, RSTART, RLENGTH)
+  if ($0 ~ / <unfinished \.\.\.>$/) { l = $0; sub(/ <unfinished \.\.\.>$/, "", l); pend[pid] = l; next }
+  if ($0 ~ /<\.\.\. [a-z0-9_]+ resumed>/ && (pid in pend)) {
+    r = $0; sub(/^.*<\.\.\. [a-z0-9_]+ resumed>/, "", r); print pend[pid] r; delete pend[pid]; next }
+  print }' "$WORK/strace.log" > "$TMP/strace-joined.log"
 calls() {  # <syscall regex>: successful calls' paths, normalised
-  grep -E "^(\[?(pid +)?[0-9]+\]? +)?($1)\(" "$WORK/strace.log" \
+  grep -E "^(\[?(pid +)?[0-9]+\]? +)?($1)\(" "$TMP/strace-joined.log" \
     | grep -E '\) += [0-9]+( |$)' \
     | grep -oE "($1)\((AT_FDCWD, )?\"[^\"]+\"" \
     | sed -E 's/^[a-z0-9]+\((AT_FDCWD, )?"//; s/"$//' | grep '^/' \

@@ -17,7 +17,7 @@ R="$DIR/reports"
 section() { [[ -s "$1" ]] && cat "$1" || { echo "_Not generated yet: run \`make $2 APP=$APP\`._"; echo; }; }
 demote() { sed -E 's/^## /#### /; s/^### /##### /'; }   # tool reports use "##"; nest them under the stage headings
 
-echo "# $APP"
+echo "## $APP"
 echo
 
 # --- overview ------------------------------------------------------------------------

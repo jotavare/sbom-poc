@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 # --- rust-tools stage: prebuilt, checksum-verified cargo plugins (static musl
 #     builds from the projects' GitHub releases) instead of `cargo install`,
 #     which compiled them from source on every CI run (~1-3 min).

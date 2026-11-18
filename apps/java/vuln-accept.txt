@@ -1,10 +1,92 @@
-# Accepted risks for the vulnerability gate: "<package | prefix* | ID> <expires YYYY-MM-DD> <reason>".
-# Package = normalised purl without version (as in reports/vulns.md). Expired entries stop applying,
-# so every acceptance is reviewed again. This app is vulnerable ON PURPOSE: its pins are the test data.
-maven/org.apache.logging.log4j/log4j-core 2027-05-17 planted: 2.14.1, Log4Shell
-maven/org.yaml/snakeyaml                  2027-05-17 planted: 1.29, unsafe deserialization
-maven/org.springframework/*               2027-05-17 planted: Spring Boot 2.6.1 stack (Spring4Shell)
-maven/org.springframework.boot/*          2027-05-17 planted: Spring Boot 2.6.1
-maven/org.apache.tomcat.embed/*           2027-05-17 planted: Tomcat pinned by Spring Boot 2.6.1
-maven/com.fasterxml.jackson.core/*        2027-05-17 planted: Jackson pinned by Spring Boot 2.6.1
-maven/org.apache.logging.log4j/*          2027-05-17 planted: Log4j 2.14.1 bridge jars (log4j-api, log4j-slf4j-impl, log4j-jul)
+# Accepted risks for the vulnerability gate: "<vulnerability ID> <expires YYYY-MM-DD> <reason>".
+# One line per vulnerability, so a NEW CVE in the same package blocks the gate instead of being
+# accepted silently. Expired entries stop applying, so every acceptance is reviewed again.
+# (A package, or a package prefix ending in *, also works as the key, but covers every future CVE.)
+# This app is vulnerable ON PURPOSE: these are known CVEs in its deliberately old pins.
+CVE-2016-1000027 2027-05-17 old pin, critical: maven/org.springframework/spring-web@5.3.13
+CVE-2020-36518 2027-05-17 old pin, high: maven/com.fasterxml.jackson.core/jackson-databind@2.13.0
+CVE-2021-44228 2027-05-17 planted, critical: maven/org.apache.logging.log4j/log4j-core@2.14.1
+CVE-2021-45046 2027-05-17 planted, critical: maven/org.apache.logging.log4j/log4j-core@2.14.1
+CVE-2021-45105 2027-05-17 old pin, high: maven/org.apache.logging.log4j/log4j-core@2.14.1
+CVE-2021-46877 2027-05-17 old pin, high: maven/com.fasterxml.jackson.core/jackson-databind@2.13.0
+CVE-2022-1471 2027-05-17 planted, high: maven/org.yaml/snakeyaml@1.29
+CVE-2022-22965 2027-05-17 planted, critical: maven/org.springframework/spring-beans@5.3.13, maven/org.springframework/spring-webmvc@5.3.13
+CVE-2022-22968 2027-05-17 old pin, high: maven/org.springframework/spring-context@5.3.13
+CVE-2022-22970 2027-05-17 old pin, high: maven/org.springframework/spring-beans@5.3.13
+CVE-2022-25857 2027-05-17 old pin, high: maven/org.yaml/snakeyaml@1.29
+CVE-2022-42003 2027-05-17 old pin, high: maven/com.fasterxml.jackson.core/jackson-databind@2.13.0
+CVE-2022-42004 2027-05-17 old pin, high: maven/com.fasterxml.jackson.core/jackson-databind@2.13.0
+CVE-2022-42252 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2022-45143 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2023-20860 2027-05-17 old pin, critical: maven/org.springframework/spring-webmvc@5.3.13
+CVE-2023-20863 2027-05-17 old pin, high: maven/org.springframework/spring-expression@5.3.13
+CVE-2023-20883 2027-05-17 old pin, high: maven/org.springframework.boot/spring-boot-autoconfigure@2.6.1
+CVE-2023-24998 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2023-44487 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2023-46589 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2024-22243 2027-05-17 old pin, high: maven/org.springframework/spring-web@5.3.13
+CVE-2024-22259 2027-05-17 old pin, high: maven/org.springframework/spring-web@5.3.13
+CVE-2024-22262 2027-05-17 old pin, high: maven/org.springframework/spring-web@5.3.13
+CVE-2024-24549 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2024-34750 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2024-38286 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2024-38816 2027-05-17 old pin, high: maven/org.springframework/spring-webmvc@5.3.13
+CVE-2024-38819 2027-05-17 old pin, high: maven/org.springframework/spring-webmvc@5.3.13
+CVE-2024-50379 2027-05-17 old pin, critical: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2024-52316 2027-05-17 old pin, critical: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2024-56337 2027-05-17 old pin, critical: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2025-22235 2027-05-17 old pin, high: maven/org.springframework.boot/spring-boot@2.6.1
+CVE-2025-24813 2027-05-17 old pin, critical: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2025-31651 2027-05-17 old pin, critical: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2025-41249 2027-05-17 old pin, high: maven/org.springframework/spring-core@5.3.13
+CVE-2025-46701 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2025-48988 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2025-48989 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2025-49124 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2025-49125 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2025-52520 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2025-52999 2027-05-17 old pin, high: maven/com.fasterxml.jackson.core/jackson-core@2.13.0
+CVE-2025-53506 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2025-55752 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2025-66614 2027-05-17 old pin, critical: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-101296 2027-05-17 old pin, critical: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-24880 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-29146 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-34483 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-34487 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-40973 2027-05-17 old pin, high: maven/org.springframework.boot/spring-boot@2.6.1
+CVE-2026-41284 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-41293 2027-05-17 old pin, critical: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-41842 2027-05-17 old pin, high: maven/org.springframework/spring-webmvc@5.3.13
+CVE-2026-41845 2027-05-17 old pin, high: maven/org.springframework/spring-webmvc@5.3.13
+CVE-2026-41850 2027-05-17 old pin, high: maven/org.springframework/spring-expression@5.3.13
+CVE-2026-42498 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55, maven/org.apache.tomcat.embed/tomcat-embed-websocket@9.0.55
+CVE-2026-43512 2027-05-17 old pin, critical: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-43513 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-43515 2027-05-17 old pin, critical: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-47884 2027-05-17 old pin, critical: maven/org.springframework/spring-webmvc@5.3.13
+CVE-2026-53404 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-53434 2027-05-17 old pin, critical: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-54512 2027-05-17 old pin, high: maven/com.fasterxml.jackson.core/jackson-databind@2.13.0
+CVE-2026-54513 2027-05-17 old pin, high: maven/com.fasterxml.jackson.core/jackson-databind@2.13.0
+CVE-2026-55276 2027-05-17 old pin, critical: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-55957 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-65182 2027-05-17 old pin, critical: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-65183 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-65905 2027-05-17 old pin, critical: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-65927 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-66422 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-68494 2027-05-17 old pin, high: maven/com.fasterxml.jackson.core/jackson-core@2.13.0
+CVE-2026-68525 2027-05-17 old pin, critical: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-68569 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-68763 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-75973 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-76183 2027-05-17 old pin, critical: maven/org.apache.tomcat.embed/tomcat-embed-websocket@9.0.55
+CVE-2026-77762 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-78383 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-79677 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-websocket@9.0.55
+CVE-2026-80353 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-core@9.0.55
+CVE-2026-87022 2027-05-17 old pin, high: maven/org.apache.tomcat.embed/tomcat-embed-websocket@9.0.55
+CVE-2026-89425 2027-05-17 old pin, high: maven/com.fasterxml.jackson.core/jackson-core@2.13.0
+CVE-2026-91776 2027-05-17 old pin, high: maven/com.fasterxml.jackson.core/jackson-databind@2.13.0
+CVE-2026-91777 2027-05-17 old pin, high: maven/com.fasterxml.jackson.core/jackson-databind@2.13.0

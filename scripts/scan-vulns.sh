@@ -66,10 +66,10 @@ GRYPE_ENV=(-e GRYPE_DB_CACHE_DIR=/db/grype -e GRYPE_CHECK_FOR_APP_UPDATE=false)
 
 # --- 1. databases: updated once, under a lock (parallel `make -j` runs share them) ---
 t0=$SECONDS
-# A DB is refreshed only when it is older than VULN_DB_MAX_AGE_HOURS (default 24):
+# A DB is refreshed only when it is older than VULN_DB_MAX_AGE_HOURS (default 12):
 # both scanners publish several builds a day, and fetching the newest on every
 # run made the daily CI cache useless (~40 s per job). The report shows the DB date.
-MAX_AGE=$(( ${VULN_DB_MAX_AGE_HOURS:-24} * 3600 ))
+MAX_AGE=$(( ${VULN_DB_MAX_AGE_HOURS:-12} * 3600 ))
 older_than_max() {  # <ISO timestamp or empty>: true if missing or too old
   [[ -n "$1" ]] || return 0
   local ts; ts="$(date -u -d "$1" +%s 2> /dev/null)" || return 0
@@ -92,6 +92,7 @@ older_than_max() {  # <ISO timestamp or empty>: true if missing or too old
     "$(jq -r '.UpdatedAt // empty' "$DB/trivy/db/metadata.json" 2> /dev/null || true)" > "$DB/versions.txt"
 ) 9> "$DB/lock"
 echo "vulnerability databases ready ($((SECONDS - t0)) s)"
+[[ -s "$DB/versions.txt" ]] && cp "$DB/versions.txt" "$OUT/db-versions.txt"   # for the report header
 
 # --- 2. scans: the three scanners run in parallel, each over every SBOM ---
 scan() {
@@ -109,8 +110,12 @@ scan() {
         run "$TRIVY_IMAGE" --cache-dir /db/trivy sbom --skip-db-update --skip-java-db-update \
           --scanners vuln --format json -o "/out/trivy-$s.json" "/sbom/$s.cdx.json" > "$log" 2>&1 || rc=$? ;;
       osv)
-        # exit 1 = vulnerabilities found; uses the osv.dev API (package names + versions)
-        run "$OSV_IMAGE" scan source -L "/sbom/$s.cdx.json" --format json \
+        # exit 1 = vulnerabilities found; uses the osv.dev API (package names + versions).
+        # Reads a copy without file and cryptographic-asset components: they are
+        # not packages, and OSV-Scanner logs a warning for every one of them.
+        jq '.components = [.components[]? | select(.type != "file" and .type != "cryptographic-asset")]' \
+          "$DIR/$s.cdx.json" > "$OUT/osv-input-$s.cdx.json"
+        run -v "$OUT_ABS/osv-input-$s.cdx.json:/in/$s.cdx.json:ro" "$OSV_IMAGE" scan source -L "/in/$s.cdx.json" --format json \
           --output-file "/out/osv-$s.json" > "$log" 2>&1 || rc=$?
         (( rc == 1 )) && rc=0 ;;
     esac
@@ -126,6 +131,7 @@ if [[ "${VULN_SKIP_SCAN:-}" != 1 ]]; then
   pids=()
   for sc in $SCANNERS; do scan "$sc" & pids+=($!); done
   for p in "${pids[@]}"; do wait "$p" || true; done
+  rm -f "$OUT"/osv-input-*.cdx.json
 fi
 
 # --- 3. normalise: one finding per (scanner, SBOM, package, vulnerability) ---
@@ -240,6 +246,29 @@ if jq -e '[.[] | select(.scanner == "osv" and (.pkg | startswith("golang/stdlib@
 fi
 echo
 
+echo "### OS-package coverage"
+echo
+echo "How many of each image SBOM's Debian packages got any finding, per scanner. **0 means the scanner couldn't match that SBOM's OS packages**, not that they are clean (see above); the gate uses the union, so one blind pair doesn't hide anything, but a pair that suddenly drops to 0 means a tool changed."
+echo
+echo "| SBOM | Debian packages | Grype | Trivy | OSV-Scanner |"
+echo "|---|---|---|---|---|"
+for s in $SBOMS; do
+  [[ "$s" == *-image && -s "$DIR/$s.cdx.json" ]] || continue
+  ndeb=$(jq '[.components[]? | select((.purl // "") | startswith("pkg:deb/")) | select(.purl | test("[?&]arch=source") | not)] | length' "$DIR/$s.cdx.json")
+  row="| \`$s.cdx.json\` | $ndeb |"
+  for sc in $SCANNERS; do
+    if [[ ! -s "$OUT/$sc-$s.json" ]]; then row+=" failed |"; continue; fi
+    n=$(jq --arg s "$s" --arg sc "$sc" '[.[] | select(.sbom == $s and .scanner == $sc and (.pkg | startswith("deb/"))) | .pkg] | unique | length' "$OUT/findings.json")
+    if [[ "$sc" == trivy ]] && grep -q 'Unsupported os' "$OUT/logs/trivy-$s.log" 2> /dev/null; then
+      row+=" not scanned (no OS in the SBOM) |"
+    else
+      row+=" $n |"
+    fi
+  done
+  echo "$row"
+done
+echo
+
 echo "### Do the scanners agree? (all image SBOMs)"
 echo
 echo "A finding counts for a scanner if it reported it on any of the image SBOMs."
@@ -250,6 +279,11 @@ jq -r 'group_by(.scanners | join(" + ")) | sort_by([-(.[0].scanners | length), (
   | "| \(.[0].scanners | join(" + ")) | \(length) | \(map(select(.sev == "critical" or .sev == "high")) | length) |"' "$OUT/gate.json" \
   | sed 's/grype/Grype/g; s/trivy/Trivy/g; s/osv/OSV/g'
 echo
+fp=$(jq '[.[] | select(.scanners == ["osv"] and (.pkg | startswith("golang/stdlib@")))] | length' "$OUT/gate.json")
+if (( fp > 0 )); then
+  echo "Of the OSV-only findings, $fp are on the Go standard library: the false positives explained above."
+  echo
+fi
 single="$(jq -r '[.[] | select((.scanners | length) == 1 and (.sev == "critical" or .sev == "high"))]
   | sort_by(.scanners[0], .pkg)[] | "| \(.scanners[0]) | `\(.pkg)` | \(.id) | \(.sev) |"' "$OUT/gate.json")"
 if [[ -n "$single" ]]; then

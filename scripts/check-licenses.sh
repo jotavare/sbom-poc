@@ -87,7 +87,7 @@ root_names=$(for s in "${SBOMS[@]}"; do jq -r '.metadata.component.name // empty
 # grant exits 1 on any violation; --dry-run keeps it 0 so all results are collected
 docker run --rm --security-opt label=disable --user "$(id -u):$(id -g)" \
   -v "$PWD/$WORK":/w -w /w "$GRANT_IMAGE" -c policy.yaml check --dry-run \
-  $(for s in "${SBOMS[@]}"; do basename "$s"; done) -o json > "$OUT" 2> /dev/null
+  $(for s in "${SBOMS[@]}"; do basename "$s"; done) -o json > "$OUT" 2> "$WORK/grant.log"
 
 # --- statuses ------------------------------------------------------------------
 # grant marks licences it recognises as SPDX with a detailsUrl; anything else
@@ -103,7 +103,7 @@ STATUS='
 
 echo "## Licences ($APP)"
 echo
-echo "Policy: \`$POLICY\` (allow-list). Checked: dependency SBOMs (source, native) and image **app** views. OS packages are not checked."
+echo "Policy: \`$POLICY\` (allow-list). Checked: dependency SBOMs (source, native) and image **app** views. OS packages are not checked. **Report only:** a violation doesn't fail the build (\`LICENSE_GATE=1\` fails on violations in the native build SBOM)."
 echo
 echo "| SBOM | Packages | Allowed | Violations | Unknown | Ignored | Result |"
 echo "|---|---|---|---|---|---|---|"
@@ -113,20 +113,23 @@ jq -r "$STATUS"'
   | ($s | map(select(. == "violation")) | length) as $v
   | ($s | map(select(. == "unknown")) | length) as $u
   | "| `\($ref)` | \($s | length) | \($s | map(select(. == "allowed")) | length) | \($v) | \($u) | \($s | map(select(. == "ignored")) | length) | \(
-      if ($s | length) == 0 then "warning: no packages" elif $v > 0 then "FAIL: violation" elif $u > 0 then "warning: incomplete data" else "pass" end) |"' "$OUT"
+      if ($s | length) == 0 then "warning: no packages" elif $v > 0 then "violation" elif $u > 0 then "warning: incomplete data" else "pass" end) |"' "$OUT"
 echo
-echo "<details><summary>Violations and unknowns per SBOM</summary>"
-echo
-jq -r "$STATUS"'
+details="$(jq -r "$STATUS"'
   .run.targets[] | .source.ref as $ref
   | [.evaluation.findings.packages[]? | {name, version, st: status, lic: ([.licenses[]?.id] | join(" OR "))}
      | select(.st == "violation" or .st == "unknown")] as $p
   | select(($p | length) > 0)
   | "**`\($ref)`**", "",
     ($p | sort_by(.st, .name)[] | "- \(if .st == "violation" then "**violation**" else "unknown" end) `\(.name)@\(.version)`: \(if .lic == "" then "_no licence_" else .lic end)"),
-    ""' "$OUT"
-echo "</details>"
-echo
+    ""' "$OUT")"
+if [[ -n "$details" ]]; then
+  echo "<details><summary>Violations and unknowns per SBOM</summary>"
+  echo
+  echo "$details"
+  echo "</details>"
+  echo
+fi
 
 if [[ "${LICENSE_GATE:-0}" == "1" ]] && jq -e "$STATUS"'
     [.run.targets[] | select(.source.ref == "native-build.cdx.json")

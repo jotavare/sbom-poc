@@ -39,13 +39,14 @@ bk_ensure "$OUT_ROOT"
 # --- build + attest + push ------------------------------------------------------
 log "build $TAG (SBOM + provenance attestations)"
 start=$SECONDS
+mkdir -p "$OUT_ROOT/.cache/$APP"   # build.log is uploaded with the app's other tool logs
 timeout --kill-after=30 "$TIMEOUT" docker buildx build --builder "$BUILDER" --progress=plain \
   --target runtime \
   --sbom="generator=$SBOM_SCANNER" --provenance=mode=max \
   --label "org.opencontainers.image.revision=$COMMIT" \
   --label "org.opencontainers.image.title=poc-$APP" \
-  -t "$TAG" --push "$APP_DIR" > "$OUT_ROOT/.cache/build-$APP.log" 2>&1 \
-  || { echo "FAIL [$APP] build. Last lines:" >&2; tail -30 "$OUT_ROOT/.cache/build-$APP.log" >&2; exit 1; }
+  -t "$TAG" --push "$APP_DIR" > "$OUT_ROOT/.cache/$APP/build.log" 2>&1 \
+  || { echo "FAIL [$APP] build. Last lines:" >&2; tail -30 "$OUT_ROOT/.cache/$APP/build.log" >&2; exit 1; }
 log "build ok ($((SECONDS - start))s)"
 
 # --- pull the pushed image back, so local tools scan the identical artifact ----

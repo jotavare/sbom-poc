@@ -1,5 +1,7 @@
-# Accepted risks for the vulnerability gate: "<package | prefix* | ID> <expires YYYY-MM-DD> <reason>".
-# Package = normalised purl without version (as in reports/vulns.md). Expired entries stop applying,
-# so every acceptance is reviewed again. This app is vulnerable ON PURPOSE: its pins are the test data.
-cargo/regex    2027-05-17 planted: 1.5.4, ReDoS with a user-controlled pattern
-cargo/smallvec 2027-05-17 planted: 1.6.0, buffer overflow
+# Accepted risks for the vulnerability gate: "<vulnerability ID> <expires YYYY-MM-DD> <reason>".
+# One line per vulnerability, so a NEW CVE in the same package blocks the gate instead of being
+# accepted silently. Expired entries stop applying, so every acceptance is reviewed again.
+# (A package, or a package prefix ending in *, also works as the key, but covers every future CVE.)
+# This app is vulnerable ON PURPOSE: these are known CVEs in its deliberately old pins.
+CVE-2021-25900 2027-05-17 planted, critical: cargo/smallvec@1.6.0
+CVE-2022-24713 2027-05-17 planted, high: cargo/regex@1.5.4

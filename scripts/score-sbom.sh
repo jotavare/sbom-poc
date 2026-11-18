@@ -37,7 +37,7 @@ mapfile -t FILES < <(cd "$WORK" && ls -1 *.json | sort)
 
 docker run --rm --security-opt label=disable --user "$(id -u):$(id -g)" \
   -v "$PWD/$WORK":/w:ro -w /w "$SBOMQS_IMAGE" score --json --profile "$PROFILES" "${FILES[@]}" \
-  > "$OUT" 2> /dev/null
+  > "$OUT" 2> "$WORK/sbomqs.log"
 
 table() {  # $1 = file_format value ("cyclonedx" / "spdx")
   echo "| SBOM | Interlynk | NTIA 2026 | BSI v2.1 | FSCT | Components | Missing NTIA 2026 elements |"

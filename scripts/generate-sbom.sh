@@ -155,7 +155,7 @@ gen_syft() {
          -e SYFT_JAVA_MAVEN_LOCAL_REPOSITORY_DIR=/tmp/.m2/repository)
   fi
 
-  step syft-source run_tool "${env[@]}" "$SYFT_IMAGE" scan -q dir:/src "${common[@]}" "${excludes[@]}" \
+  step syft-source run_tool "${env[@]}" "$SYFT_IMAGE" scan -v dir:/src "${common[@]}" "${excludes[@]}" \
     --enrich python --enrich javascript --enrich golang \
     -o cyclonedx-json=/out/syft-source.cdx.json -o spdx-json=/out/syft-source.spdx.json \
     -o spdx-json@3.0=/out/syft-source.spdx3.json
@@ -164,7 +164,7 @@ gen_syft() {
   # TR-03183-2 requires SHA-512 for deployable components), besides SHA-256.
   # (comma-separated: with spaces Syft keeps only SHA-1 and its SPDX 2.3 turns invalid)
   step syft-image run_tool -e SYFT_FILE_METADATA_DIGESTS=sha1,sha256,sha512 \
-    "$SYFT_IMAGE" scan -q docker-archive:/cache/image.tar "${common[@]}" \
+    "$SYFT_IMAGE" scan -v docker-archive:/cache/image.tar "${common[@]}" \
     -o cyclonedx-json=/out/syft-image.cdx.json -o spdx-json=/out/syft-image.spdx.json \
     -o spdx-json@3.0=/out/syft-image.spdx3.json \
     -o syft-json=/cache/syft-image.syft.json   # file ownership, used by runtime-sbom.sh
@@ -185,10 +185,10 @@ gen_trivy() {
 
   for fmt in cyclonedx:cdx spdx-json:spdx; do
     local format="${fmt%%:*}" ext="${fmt##*:}"
-    step "trivy-source-$ext" run_tool "$TRIVY_IMAGE" -q --cache-dir /cache/trivy fs "${skip[@]}" "${src_flags[@]}" \
+    step "trivy-source-$ext" run_tool "$TRIVY_IMAGE" --no-progress --cache-dir /cache/trivy fs "${skip[@]}" "${src_flags[@]}" \
       --file-patterns 'pip:requirements.*\.txt' \
       --format "$format" -o "/out/trivy-source.$ext.json" /src
-    step "trivy-image-$ext" run_tool "$TRIVY_IMAGE" -q --cache-dir /cache/trivy image \
+    step "trivy-image-$ext" run_tool "$TRIVY_IMAGE" --no-progress --cache-dir /cache/trivy image \
       --input /cache/image.tar --format "$format" -o "/out/trivy-image.$ext.json"
   done
 }
@@ -259,7 +259,7 @@ gen_cdxgen() {
     -r /work "${install[@]}" --spec-version 1.7 --format cyclonedx,spdx \
     --project-name "$NAME" --project-version "$VERSION" -o /out/cdxgen-source.cdx.json
 
-  step cdxgen-image run_tool --network none -e CDXGEN_NO_BANNER=true -e FETCH_LICENSE=false \
+  step cdxgen-image run_tool --network none -e CDXGEN_NO_BANNER=true -e FETCH_LICENSE=false -e SEARCH_MAVEN_ORG=false \
     -v "$CDXGEN_BIN":/usr/local/bin/cdxgen:ro --entrypoint /usr/local/bin/cdxgen \
     "$CDXGEN_RUNNER_IMAGE" -t docker /cache/image.tar --spec-version 1.7 --format cyclonedx,spdx \
     --project-name "$NAME" --project-version "$VERSION" -o /out/cdxgen-image.cdx.json

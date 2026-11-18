@@ -1,9 +1,16 @@
-# Accepted risks for the vulnerability gate: "<package without version | ID> <expires YYYY-MM-DD> <reason>".
-# Package = normalised purl without version (as in reports/vulns.md). Expired entries stop applying,
-# so every acceptance is reviewed again. This app is vulnerable ON PURPOSE: its pins are the test data.
-pypi/pyyaml   2027-05-17 planted: 5.3.1, yaml.load RCE (CVE-2020-14343)
-pypi/flask    2027-05-17 planted: Flask 2.0.3 stack
-pypi/werkzeug 2027-05-17 planted: pinned with Flask 2.0.3 (debugger RCE CVE-2024-34069)
-pypi/jinja2   2027-05-17 planted: pinned with Flask 2.0.3
-pypi/urllib3  2027-05-17 planted: pinned with requests 2.25.1
-pypi/idna     2027-05-17 planted: pinned with requests 2.25.1
+# Accepted risks for the vulnerability gate: "<vulnerability ID> <expires YYYY-MM-DD> <reason>".
+# One line per vulnerability, so a NEW CVE in the same package blocks the gate instead of being
+# accepted silently. Expired entries stop applying, so every acceptance is reviewed again.
+# (A package, or a package prefix ending in *, also works as the key, but covers every future CVE.)
+# This app is vulnerable ON PURPOSE: these are known CVEs in its deliberately old pins.
+CVE-2020-14343 2027-05-17 planted, critical: pypi/pyyaml@5.3.1
+CVE-2023-25577 2027-05-17 old pin, high: pypi/werkzeug@2.0.3
+CVE-2023-30861 2027-05-17 planted, high: pypi/flask@2.0.3
+CVE-2023-43804 2027-05-17 planted, high: pypi/urllib3@1.26.5
+CVE-2024-34069 2027-05-17 planted, high: pypi/werkzeug@2.0.3
+CVE-2025-66418 2027-05-17 old pin, high: pypi/urllib3@1.26.5
+CVE-2025-66471 2027-05-17 old pin, high: pypi/urllib3@1.26.5
+CVE-2026-21441 2027-05-17 old pin, high: pypi/urllib3@1.26.5
+CVE-2026-44431 2027-05-17 old pin, high: pypi/urllib3@1.26.5
+CVE-2026-97687 2027-05-17 old pin, high: pypi/urllib3@1.26.5
+CVE-2026-97689 2027-05-17 old pin, high: pypi/urllib3@1.26.5

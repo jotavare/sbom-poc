@@ -1,7 +1,10 @@
 # Requests sent while the runtime SBOM records which files the app uses.
-# Format: METHOD PATH [BODY]. Exercise the main code paths; no external network.
+# Format: METHOD PATH [BODY], optionally " | Header: value". No external network:
+# /fetch (SSRF) asks the app for its own /health. /ping (command injection) needs
+# a shell, which the distroless images do not have, so it is expected to fail.
 GET /health
 GET /hash?value=abc
 GET /match?pattern=a.c&text=abc
 GET /split?csv=a,b,c
 GET /time
+GET /ping?host=127.0.0.1

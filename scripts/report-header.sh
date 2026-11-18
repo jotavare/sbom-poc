@@ -19,13 +19,40 @@ echo "| | |"
 echo "|---|---|"
 echo "| Commit | \`$commit\`$dirty |"
 echo "| Generated | $(date -u +%Y-%m-%dT%H:%M:%SZ) |"
-# tool images pinned in the scripts (name:version, digest omitted for brevity)
-grep -hoE '(anchore/syft|anchore/grype|google/osv-scanner|aquasec/trivy|anchore/grant|interlynk-io/sbomqs|cyclonedx/cyclonedx-cli|docker/buildkit-syft-scanner|moby/buildkit):[A-Za-z0-9._-]+' scripts/*.sh \
+# tool images as pinned in the scripts (defaults; a run can override them with
+# *_IMAGE variables), with the first 12 hex digits of their digest
+grep -hoE '((ghcr\.io|docker\.io)/)?(anchore/syft|anchore/grype|google/osv-scanner|aquasec/trivy|anchore/grant|interlynk-io/sbomqs|cyclonedx/cyclonedx-cli|docker/buildkit-syft-scanner|moby/buildkit):[A-Za-z0-9._-]+(@sha256:[0-9a-f]{12})?' scripts/*.sh \
   | sort -u | sed 's/^/| Tool | `/; s/$/` |/'
-grep -hoE 'CDXGEN_VERSION:-[^}]+' scripts/generate-sbom.sh | sed 's/CDXGEN_VERSION:-/| Tool | `cdxgen /; s/$/` (release binary) |/'
-grep -hoE 'SPDX_TOOLS_VERSION="[^"]+' scripts/validate-sbom.sh | sed 's/SPDX_TOOLS_VERSION="/| Tool | `spdx-tools /; s/$/` |/'
+grep -hoE 'CDXGEN_VERSION:-[^}]+' scripts/generate-sbom.sh | sed 's/CDXGEN_VERSION:-/| Tool | `cdxgen /; s/$/` (release binary, checksum-pinned) |/'
+grep -hoE '(SPDX_TOOLS|SPDX3_VALIDATE|JSONSCHEMA_RS)_VERSION="[^"]+' scripts/validate-sbom.sh \
+  | sed -E 's/SPDX_TOOLS_VERSION="/spdx-tools /; s/SPDX3_VALIDATE_VERSION="/spdx3-validate /; s/JSONSCHEMA_RS_VERSION="/jsonschema-rs /; s/^/| Tool | `/; s/$/` |/'
+echo "| Tool | \`strace $(grep -hoE 'strace-[0-9.]+[0-9]' scripts/runtime-sbom.sh | head -1 | sed 's/strace-//')\` (static, built from the PGP-verified source tarball) |"
+for f in "$ROOT"/*/vulns/db-versions.txt; do
+  [[ -s "$f" ]] || continue
+  echo "| Vulnerability DBs | Grype built \`$(awk '$1 == "grype" {print $2}' "$f")\`, Trivy updated \`$(awk '$1 == "trivy" {print $2}' "$f")\`; OSV-Scanner queries the live osv.dev API |"
+  break
+done
 for f in "$ROOT"/*/artifact.json; do
   [[ -s "$f" ]] && jq -r '"| Image (\(.app)) | `\(.image)@\(.index_digest)` |"' "$f"
+done
+echo
+
+# --- overview: one row per app (a missing app is shown, not silently left out) ----
+echo "## Overview"
+echo
+echo "| App | Vulnerability gate | Critical/high | with a fix | in packages that ran | in CISA KEV |"
+echo "|---|---|---|---|---|---|"
+for a in ${APPS:-$(ls apps)}; do
+  g="$ROOT/$a/vulns/gate.json"
+  if [[ ! -s "$ROOT/$a/reports/summary.md" ]]; then
+    echo "| $a | **missing: no report from this app's job** | | | | |"
+  elif [[ -s "$g" ]]; then
+    jq -r --arg a "$a" --arg st "$(cat "$ROOT/$a/vulns/gate.status" 2> /dev/null || echo '?')" '
+      [.[] | select(.sev == "critical" or .sev == "high")] as $c
+      | "| [\($a)](#\($a)) | \($st) | \($c | length) | \($c | map(select(.fixed)) | length) | \($c | map(select(.runs == true)) | length) | \($c | map(select(.kev)) | length) |"' "$g"
+  else
+    echo "| [$a](#$a) | not run | | | | |"
+  fi
 done
 echo
 cat <<'EOF'

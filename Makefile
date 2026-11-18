@@ -109,9 +109,11 @@ stop-all: ## Stop every app
 	@for a in $(APPS); do $(MAKE) --no-print-directory stop APP=$$a; done
 
 report: ## Combine every app's summary.md into sbom/SBOM-REPORT.md (stamped with commit + tool versions)
-	@bash scripts/report-header.sh $(SBOM_DIR) > $(REPORT)
+	@APPS="$(APPS)" bash scripts/report-header.sh $(SBOM_DIR) > $(REPORT)
 	@for a in $(APPS); do f=$(SBOM_DIR)/$$a/reports/summary.md; [[ -s $$f ]] && { cat $$f; echo; } >> $(REPORT); done; true
 	@echo "wrote $(REPORT)"
+	@missing=""; for a in $(APPS); do [[ -s $(SBOM_DIR)/$$a/reports/summary.md ]] || missing="$$missing $$a"; done; \
+	 if [[ -n "$$missing" ]]; then echo "error: no report for:$$missing (see the report header)" >&2; exit 1; fi
 
 # --- repo ---------------------------------------------------------------------
 lint: ## Lint GitHub Actions workflows

@@ -179,7 +179,7 @@ compare_target() {
   echo "**Agreement:** $((total - ${#rows[@]})) of $total packages found by every generator (runtime dependencies, after normalisation)."
   echo
   if (( ${#rows[@]} > 0 )); then
-    echo "<details><summary>${#rows[@]} packages not found by every generator</summary>"
+    echo "<details><summary>${#rows[@]} package$( (( ${#rows[@]} == 1 )) || echo s) not found by every generator</summary>"
     echo
     printf '| Package |'; printf ' %s |' "${gens[@]}"; echo
     printf '|---|'; printf -- '---|%.0s' "${gens[@]}"; echo
