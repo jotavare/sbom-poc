@@ -98,7 +98,7 @@ section { display: flex; flex-direction: column; gap: 16px; }
 .out code { color: var(--ink); }
 
 /* outputs */
-.outputs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.outputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .box { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .box p, .box li { font-size: 0.88rem; }
 .box ul { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
@@ -113,6 +113,7 @@ td.num { white-space: nowrap; }
 
 .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 0.82rem; color: var(--muted); }
 footer { color: var(--muted); font-size: 0.82rem; }
+footer a { color: var(--accent); }
 
 @media (max-width: 760px) {
   .stages { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
@@ -171,7 +172,7 @@ footer { color: var(--muted); font-size: 0.82rem; }
   <section aria-labelledby="job">
     <div class="section-head">
       <h2 id="job">One CI job, step by step</h2>
-      <p>The <code>sbom.yml</code> workflow runs this job once per app (python, node, go, java, rust) in parallel, about 6 minutes in total.</p>
+      <p>The <code>sbom.yml</code> workflow runs this job once per app (python, node, go, java, rust) in parallel, about 3–4 minutes in total (vulnerability databases and validators are cached).</p>
       <div class="legend"><span><span class="chip gate">fails the build</span> a failed check stops the job</span><span><span class="chip">report</span> results only</span></div>
     </div>
     <ol class="track">
@@ -221,9 +222,9 @@ footer { color: var(--muted); font-size: 0.82rem; }
       </div></li>
       <li class="step"><div class="rail"><span class="dot">9</span></div><div class="card">
         <div class="title"><h3>Vulnerabilities</h3><span class="script">scan-vulns.sh</span></div>
-        <p>Three scanners read the three image SBOMs and the build SBOM, never the image. Findings are mapped to one CVE per package, compared, checked against the planted CVEs, and ranked: known exploited (KEV), ran at runtime, severity, EPSS.</p>
-        <div class="meta"><span class="chip">Grype</span><span class="chip">Trivy</span><span class="chip">OSV-Scanner</span></div>
-        <div class="out">→ <code>reports/vulns.md</code>, <code>vulns/</code> (raw JSON, SARIF)</div>
+        <p>Three scanners read the three image SBOMs and the build SBOM, never the image. Findings are mapped to one CVE per package, merged, checked against the planted CVEs, and ranked: known exploited (KEV), ran at runtime, severity, EPSS. The merged findings become one SARIF file, shown in GitHub code scanning.</p>
+        <div class="meta"><span class="chip">Grype</span><span class="chip">Trivy</span><span class="chip">OSV-Scanner</span><span class="chip">SARIF 2.1.0</span></div>
+        <div class="out">→ <code>reports/vulns.md</code>, <code>vulns/vulns.sarif</code>, raw scanner JSON</div>
       </div></li>
       <li class="step"><div class="rail"><span class="dot">10</span></div><div class="card">
         <div class="title"><h3>Report</h3><span class="script">summary.sh</span></div>
@@ -244,6 +245,7 @@ footer { color: var(--muted); font-size: 0.82rem; }
     <div class="outputs">
       <div class="box"><h3>Per app</h3><p>Artifact <code>sbom-&lt;app&gt;</code>: all SBOMs, views, reports and tool logs, kept 30 days.</p></div>
       <div class="box"><h3>Combined</h3><p>The report job merges every app's summary into <code>SBOM-REPORT.md</code> (artifact <code>sbom-report</code>), stamped with commit, tool versions and image digests.</p></div>
+      <div class="box"><h3>Code scanning</h3><p>Each app's <code>vulns.sarif</code> is uploaded to the repository's Security tab: one alert per package and CVE, pointing at the file that declares the package. GitHub only displays it; the findings and the gate are the pipeline's own.</p></div>
       <div class="box"><h3>By hand</h3><p>The <code>scancode.yml</code> workflow compares declared licences with those found in the files (python, node, java). Slow, so run when needed.</p></div>
     </div>
   </section>
@@ -258,16 +260,19 @@ footer { color: var(--muted); font-size: 0.82rem; }
           <tr><td>Runtime</td><td>OS packages that ran: 2–3 of 87–140 per image before distroless; now 3–5 of 14–38</td></tr>
           <tr><td>Graph</td><td>java: links matching the build SBOM: Trivy 60/60, cdxgen 29/60, Syft 0/60</td></tr>
           <tr><td>Blind spots</td><td>python: 119 files of the compiled CPython in <code>/usr/local</code> belonged to no package; gone with distroless, whose Python comes from Debian packages</td></tr>
-          <tr><td>Licences</td><td>python: <code>chardet</code> is LGPL; Werkzeug ships Ubuntu font files (Ubuntu Font Licence, CC-BY) that no metadata declares</td></tr>
+          <tr><td>Licences</td><td>python: <code>chardet</code> is LGPL; Werkzeug ships Ubuntu font files (Ubuntu Font Licence, CC-BY) that no metadata declares. node passes since distroless removed npm (Artistic-2.0)</td></tr>
           <tr><td>Vulnerabilities</td><td>Each scanner finds the Debian OS vulnerabilities only in its own generator's SBOM (python: 351 vs 40), because Debian advisories are per source package and each generator records that differently; the gate uses all of them</td></tr>
           <tr><td>Vulnerabilities</td><td>java: 133 critical/high, 101 in packages that ran, 6 in CISA KEV; the gate also caught a fixable CVE in pip, which the runtime SBOM showed never runs, so pip was removed</td></tr>
+          <tr><td>Vulnerabilities</td><td>go: OSV-Scanner reads Syft's Go stdlib version <code>go1.27.4</code> instead of the purl's <code>1.27.4</code> and reports all 164 Go stdlib advisories since 2021: false positives</td></tr>
+          <tr><td>Vulnerabilities</td><td>Every planted CVE (Log4Shell, Spring4Shell, PyYAML, lodash…) is found by all three scanners, except on cdxgen's Rust SBOM: cdxgen can't read <code>cargo auditable</code> data</td></tr>
+          <tr><td>Hardening</td><td>Distroless images have no shell: the planted command injection (<code>sh -c "ping …"</code>) is still in the code but can't start a shell in the containers</td></tr>
           <tr><td>Formats</td><td>BuildKit's SPDX 2.3 lacks required SHA-1 file checksums; Syft's and cdxgen's SPDX 3.0.1 fail the official SHACL shapes</td></tr>
         </tbody>
       </table>
     </div>
   </section>
 
-  <footer>Iterations 1–2 of the DevSecOps PoC. Next: secrets scanning.</footer>
+  <footer>Iterations 1–2 of <a href="https://github.com/jotavare/sbom-poc">sbom-poc</a>. Next: secrets scanning.</footer>
 </main>
 </body>
 </html>
