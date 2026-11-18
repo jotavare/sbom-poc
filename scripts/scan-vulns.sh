@@ -66,11 +66,25 @@ GRYPE_ENV=(-e GRYPE_DB_CACHE_DIR=/db/grype -e GRYPE_CHECK_FOR_APP_UPDATE=false)
 
 # --- 1. databases: updated once, under a lock (parallel `make -j` runs share them) ---
 t0=$SECONDS
+# A DB is refreshed only when it is older than VULN_DB_MAX_AGE_HOURS (default 24):
+# both scanners publish several builds a day, and fetching the newest on every
+# run made the daily CI cache useless (~40 s per job). The report shows the DB date.
+MAX_AGE=$(( ${VULN_DB_MAX_AGE_HOURS:-24} * 3600 ))
+older_than_max() {  # <ISO timestamp or empty>: true if missing or too old
+  [[ -n "$1" ]] || return 0
+  local ts; ts="$(date -u -d "$1" +%s 2> /dev/null)" || return 0
+  (( $(date -u +%s) - ts > MAX_AGE ))
+}
 [[ "${VULN_SKIP_SCAN:-}" == 1 ]] || (
-
   flock 9
-  run "${GRYPE_ENV[@]}" "$GRYPE_IMAGE" db update > "$OUT/logs/grype-db.log" 2>&1
-  run "$TRIVY_IMAGE" --cache-dir /db/trivy image --download-db-only --no-progress > "$OUT/logs/trivy-db.log" 2>&1
+  built="$(run "${GRYPE_ENV[@]}" "$GRYPE_IMAGE" db status -o json 2> /dev/null | jq -r '.built // empty' || true)"
+  if older_than_max "$built"; then
+    run "${GRYPE_ENV[@]}" "$GRYPE_IMAGE" db update > "$OUT/logs/grype-db.log" 2>&1
+  else echo "grype DB built $built: fresh enough" > "$OUT/logs/grype-db.log"; fi
+  updated="$(jq -r '.UpdatedAt // empty' "$DB/trivy/db/metadata.json" 2> /dev/null || true)"
+  if older_than_max "$updated"; then
+    run "$TRIVY_IMAGE" --cache-dir /db/trivy image --download-db-only --no-progress > "$OUT/logs/trivy-db.log" 2>&1
+  else echo "trivy DB updated $updated: fresh enough" > "$OUT/logs/trivy-db.log"; fi
 ) 9> "$DB/lock"
 echo "vulnerability databases ready ($((SECONDS - t0)) s)"
 
