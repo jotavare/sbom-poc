@@ -15,8 +15,14 @@
 
 include "graph";
 
+# IDs a scanner reports without their CVE alias, with the evidence for the mapping
+def aliases: {
+  "NSWG-ECO-516": "CVE-2020-8203"   # lodash, Trivy; same report as npm advisory 1523 / GHSA-p6mc-m468-83gw
+};
+
 # OSV names distro records after the CVE ("DEBIAN-CVE-2024-1234"): use the CVE
-def canon: map(sub("^[A-Z]+-(?<c>CVE-)"; "\(.c)")) | (map(select(startswith("CVE-"))) | sort | first) // (sort | first);
+def canon: map(sub("^[A-Z]+-(?<c>CVE-)"; "\(.c)")) | map(aliases[.] // .)
+  | (map(select(startswith("CVE-"))) | sort | first) // (sort | first);
 
 def sev_name: ascii_downcase | if . == "negligible" then "low"
   elif IN("critical", "high", "medium", "low") then . else "unknown" end;
@@ -26,10 +32,17 @@ def cvss_name: (tonumber? // null) as $s
   | if $s == null then "unknown" elif $s >= 9 then "critical" elif $s >= 7 then "high"
     elif $s >= 4 then "medium" elif $s > 0 then "low" else "unknown" end;
 
+# src: a Debian SOURCE package (cdxgen lists them, "?arch=source", next to the
+# binary packages); scan-vulns.sh moves such findings onto the binary packages
+# built from that source, so one flaw is not counted twice.
 def finding($ids; $sev; $fix; $fixed; $epss; $kev; $purl):
   {scanner: $ARGS.named.scanner, sbom: $ARGS.named.sbom,
-   pkg: ($purl | norm_purl), ids: ($ids | unique), id: ($ids | canon),
-   sev: $sev, fix: $fix, fixed: $fixed, epss: $epss, kev: $kev};
+   pkg: ($purl | norm_purl), src: ($purl | test("[?&]arch=source")),
+   ids: ($ids | map(aliases[.] // .) | unique), id: ($ids | canon),
+   sev: $sev, fix: ($fix | map(sub("^[<>=~^ ]+"; ""))), fixed: $fixed, epss: $epss, kev: $kev};
+
+# version-aware sort key ("2.10" after "2.9")
+def vkey: [scan("[0-9]+") | tonumber];
 
 def grype:
   .matches[]? | select(.artifact.purl != null and .artifact.purl != "")

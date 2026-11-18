@@ -55,7 +55,10 @@ docker tag "$TAG" "$LOCAL_TAG"
 index_digest=$(docker buildx imagetools inspect "$TAG" --format '{{json .Manifest}}' | jq -r .digest)
 manifest_digest=$(docker buildx imagetools inspect "$TAG" --format '{{json .Manifest}}' \
   | jq -r '.manifests[] | select(.platform.os == "linux") | .digest')
-image_id=$(docker image inspect -f '{{.Id}}' "$LOCAL_TAG")
+# config digest: the image's ID in the OCI sense (Trivy records it as ImageID).
+# Docker's own "Id" is the index digest with the containerd image store.
+config_digest=$(docker buildx imagetools inspect "$TAG@$manifest_digest" --raw | jq -r .config.digest)
+docker_id=$(docker image inspect -f '{{.Id}}' "$LOCAL_TAG")
 
 docker buildx imagetools inspect "$TAG" --format '{{json .SBOM}}' \
   | jq '.SPDX' > "$OUT/buildkit-image.spdx.json"
@@ -63,9 +66,9 @@ docker buildx imagetools inspect "$TAG" --format '{{json .Provenance}}' \
   | jq '.SLSA' > "$OUT/buildkit-provenance.json"
 
 jq -n --arg app "$APP" --arg image "$TAG" --arg local "$LOCAL_TAG" \
-      --arg index "$index_digest" --arg manifest "$manifest_digest" --arg id "$image_id" \
+      --arg index "$index_digest" --arg manifest "$manifest_digest" --arg config "$config_digest" --arg id "$docker_id" \
       --arg commit "$COMMIT" --arg built "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   '{app: $app, image: $image, local_tag: $local, index_digest: $index,
-    manifest_digest: $manifest, image_id: $id, commit: $commit, built_at: $built}' \
+    manifest_digest: $manifest, config_digest: $config, docker_image_id: $id, commit: $commit, built_at: $built}' \
   > "$OUT/artifact.json"
 log "artifact $TAG@$index_digest"

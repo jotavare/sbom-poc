@@ -2,3 +2,5 @@
 pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1
 # transitive (via Spring Boot): proves the tool resolves the Maven tree
 pkg:maven/org.yaml/snakeyaml@1.29
+# Logging really goes through log4j-core (Log4Shell reachable), not Logback
+pkg:maven/org.apache.logging.log4j/log4j-slf4j-impl@2.14.1

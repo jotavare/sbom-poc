@@ -61,20 +61,25 @@ mapfile -t ARGV < <(docker image inspect "$IMAGE" \
 
 chmod 777 "$WORK"   # the app runs as its own non-root user and writes the trace here
 EXTRA_ENV=()
-[[ "$APP" == java ]] && EXTRA_ENV=(-e "JAVA_TOOL_OPTIONS=-Xlog:class+load=info:file=/trace/classload.log")
+# one log per JVM (%p = pid), no rotation: a second JVM (e.g. a health check)
+# must not overwrite the app's log
+[[ "$APP" == java ]] && EXTRA_ENV=(-e "JAVA_TOOL_OPTIONS=-Xlog:class+load=info:file=/trace/classload-%p.log::filecount=0")
 
 docker rm -f "$NAME" > /dev/null 2>&1 || true
 log "starting under strace: ${ARGV[*]}"
 # -f follow children, -qq quiet; open/openat/execve(at) only.
 # The trace goes to stderr (unbuffered) and is read back with `docker logs`:
 # with -o <file>, strace buffers the file and the tail was lost on container stop.
-docker run -d --name "$NAME" --security-opt label=disable \
+# --no-healthcheck: the image's HEALTHCHECK runs a separate process (Java: a
+# second JVM) that is not the app; the trace and the class-load log are the app's
+docker run -d --name "$NAME" --security-opt label=disable --no-healthcheck \
   -p 127.0.0.1::8080 -v "$(cd "$STRACE_DIR" && pwd)/strace":/opt/strace:ro \
   -v "$(cd "$WORK" && pwd)":/trace "${EXTRA_ENV[@]}" \
   --entrypoint /opt/strace "$IMAGE" \
   -f -qq -e trace=open,openat,openat2,execve,execveat -e signal=none \
   -- "${ARGV[@]}" > /dev/null
-trap 'docker rm -f "$NAME" > /dev/null 2>&1 || true' EXIT
+TMP="$(mktemp -d)"
+trap 'docker rm -f "$NAME" > /dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
 
 PORT=$(docker port "$NAME" 8080/tcp | head -1 | sed 's/.*://')
 BASE="http://127.0.0.1:$PORT"
@@ -103,22 +108,55 @@ docker logs "$NAME" > "$WORK/strace.log" 2>&1 || true   # strace lines + the app
 # Keep only SUCCESSFUL calls (result >= 0; failed lookups like ENOENT are not use),
 # then normalise paths ("/usr/local/bin/../lib/x" -> "/usr/local/lib/x").
 # (the first process's lines carry no PID prefix; children's do)
-grep -E '^(\[?(pid +)?[0-9]+\]? +)?(open|openat|openat2|execve|execveat)\(' "$WORK/strace.log" \
-  | grep -E '\) += [0-9]+( |$)' \
-  | grep -oE '(open|openat|openat2|execve|execveat)\((AT_FDCWD, )?"[^"]+"' \
-  | sed -E 's/^[a-z0-9]+\((AT_FDCWD, )?"//; s/"$//' | grep '^/' \
-  | awk '{ n = split($0, p, "/"); k = 0
-           for (i = 2; i <= n; i++) { if (p[i] == "" || p[i] == ".") continue
-             if (p[i] == "..") { if (k > 0) k--; continue } out[++k] = p[i] }
-           s = ""; for (i = 1; i <= k; i++) s = s "/" out[i]; print (s == "" ? "/" : s) }' \
+calls() {  # <syscall regex>: successful calls' paths, normalised
+  grep -E "^(\[?(pid +)?[0-9]+\]? +)?($1)\(" "$WORK/strace.log" \
+    | grep -E '\) += [0-9]+( |$)' \
+    | grep -oE "($1)\((AT_FDCWD, )?\"[^\"]+\"" \
+    | sed -E 's/^[a-z0-9]+\((AT_FDCWD, )?"//; s/"$//' | grep '^/' \
+    | awk '{ n = split($0, p, "/"); k = 0
+             for (i = 2; i <= n; i++) { if (p[i] == "" || p[i] == ".") continue
+               if (p[i] == "..") { if (k > 0) k--; continue } out[++k] = p[i] }
+             s = ""; for (i = 1; i <= k; i++) s = s "/" out[i]; print (s == "" ? "/" : s) }' \
+    | sort -u || true
+}
+calls 'open|openat|openat2|execve|execveat' > "$TMP/opened.txt"
+calls 'execve|execveat' > "$TMP/executed.txt"
+
+# The paths a process asks for are often symlinks (libsqlite3.so.0 ->
+# libsqlite3.so.0.8.6), while package file lists name the real file: resolve
+# every path through the image's symlinks. And a script's interpreter (#! line)
+# is loaded by the kernel without an open() that strace sees: add it.
+cid=$(docker create "$IMAGE" /none)
+docker export "$cid" > "$TMP/rootfs.tar"
+docker rm "$cid" > /dev/null
+# GNU tar -tv symlink line: "lrwxrwxrwx 0/0 0 2026-01-01 00:00 usr/lib/x.so.1 -> x.so.1.2"
+tar -tvf "$TMP/rootfs.tar" | awk '$1 ~ /^l/ { l = $0; sub(/^([^ ]+ +){5}/, "", l)
+    i = index(l, " -> "); print "/" substr(l, 1, i - 1) "\t" substr(l, i + 4) }' \
+  | sed 's|^//|/|' > "$TMP/symlinks.tsv"
+RESOLVE='include "ownership";
+  ($links | split("\n") | map(select(. != "") | split("\t") | {key: (.[0] | normpath), value: .[1]}) | from_entries) as $L
+  | def ancestors: . as $p | [range(2; ($p | split("/") | length) + 1) as $i | $p | split("/")[0:$i] | join("/")];
+    def step: . as $p | [ancestors[] | select($L[.])] | last as $a
+      | if $a == null then $p
+        else ($L[$a]) as $t
+          | (if ($t | startswith("/")) then $t else ($a | sub("/[^/]*$"; "")) + "/" + $t end)
+            + ($p | ltrimstr($a)) | normpath end;
+    def resolve: reduce range(0; 10) as $i (.; step);
+  $in | split("\n") | map(select(. != "")) | .[] | normpath | ., resolve'
+jq -r -n -L "$(dirname "$0")" --rawfile links "$TMP/symlinks.tsv" --rawfile in "$TMP/executed.txt" "$RESOLVE" \
+  | sort -u > "$TMP/executed-resolved.txt"
+: > "$TMP/interpreters.txt"
+while read -r exe; do
+  line="$(tar -xOf "$TMP/rootfs.tar" "${exe#/}" 2> /dev/null | head -c 256 | head -1 | tr -d '\0' || true)"
+  [[ "$line" == '#!'* ]] && awk '{print $1}' <<< "${line#\#!}" >> "$TMP/interpreters.txt"
+done < "$TMP/executed-resolved.txt"
+cat "$TMP/opened.txt" "$TMP/interpreters.txt" > "$TMP/raw.txt"
+jq -r -n -L "$(dirname "$0")" --rawfile links "$TMP/symlinks.tsv" --rawfile in "$TMP/raw.txt" "$RESOLVE" \
   | sort -u > "$WORK/files.txt"
-# Java: JARs that classes were loaded from (nested JARs inside the fat JAR)
-if [[ -s "$WORK/classload.log" ]]; then
-  grep -oE 'source: jar:file:[^ ]+' "$WORK/classload.log" | sed -E 's|^source: jar:file:||; s|!/$||; s|!/|:|' \
-    | sort -u > "$WORK/jars.txt"
-else
-  : > "$WORK/jars.txt"
-fi
+# Java: JARs that classes were loaded from, as "<fat jar>:<nested jar>"
+# (e.g. /srv/poc-java.jar:BOOT-INF/lib/log4j-core-2.14.1.jar), one log per JVM
+cat "$WORK"/classload*.log 2> /dev/null | grep -oE 'source: jar:file:[^ ]+' \
+  | sed -E 's|^source: jar:file:||; s|!/$||; s|!/|:|' | sort -u > "$WORK/jars.txt" || true
 
 # --- map files to packages (Syft ownership; see scripts/ownership.jq) ---------------------
 jq -n -L "$(dirname "$0")" --rawfile files "$WORK/files.txt" --rawfile jars "$WORK/jars.txt" \
@@ -130,7 +168,7 @@ jq -n -L "$(dirname "$0")" --rawfile files "$WORK/files.txt" --rawfile jars "$WO
   | [ $s[0] | artifact_ownership[] as $a
       | ( [$a.files[] | select($usedSet[.])]
         + [$used[] as $u | $a.dirs[] | select(. as $d | $u | startswith($d)) | $u]
-        + [$jarsUsed[] as $j | $a.files[] as $l | select($j == $l or ($j | endswith($l))) | $j]
+        + [$jarsUsed[] as $j | $a.vpaths[] as $v | select($j == $v) | $j]
         ) as $evidence
       | select(($evidence | length) > 0)
       | {purl: $a.purl, name: $a.name, version: $a.version, type: $a.type,
@@ -176,7 +214,7 @@ jq --slurpfile used "$WORK/used-packages.json" --argjson probes "$probes_json" '
   echo
   echo "</details>"
   echo
-  echo "_Limits: only code paths exercised by the probes are seen. Go/Rust binaries are statically linked, so all their modules count as used once the binary runs._"
+  echo "_Limits: only code paths exercised by the probes are seen. Go and Rust compile their modules/crates into the binary, so all of them count as used once it runs (\"ran\" means linked in, not called; Rust still loads glibc and libgcc dynamically). Java: a nested JAR counts as used only if classes were loaded from it._"
   echo
 } > "$DIR/reports/runtime.md"
 

@@ -7,7 +7,10 @@
 #
 # Candidates: regular files that are executable, or look like code
 # (*.so*, *.jar, *.node, *.wasm, *.a, *.pyd). Ownership: scripts/ownership.jq
-# on Syft's native JSON for the same image.
+# on Syft's native JSON for the same image. An unclaimed file counts only if
+# its content is code: an ELF binary, a script (#!), or one of those
+# extensions; the execute bit alone isn't enough (a CA bundle or LICENSE with
+# mode 755 is not software). Those are listed separately.
 #
 # Usage: scripts/unmanaged-files.sh <app> [out-root]
 # Output: <out-root>/<app>/reports/unmanaged.md, reports/unmanaged.txt
@@ -26,8 +29,9 @@ trap 'rm -rf "$WORK"' EXIT
 
 # --- every candidate file in the image (listing only, nothing extracted) --------------
 cid=$(docker create "$IMAGE" /none)
-docker export "$cid" | tar -tvf - > "$WORK/listing.txt"
+docker export "$cid" > "$WORK/rootfs.tar"
 docker rm "$cid" > /dev/null
+tar -tvf "$WORK/rootfs.tar" > "$WORK/listing.txt"
 # GNU tar -tv: "-rwxr-xr-x root/root 1234 2026-01-01 00:00 path"
 awk '$1 ~ /^-/ {
        path = $6; for (i = 7; i <= NF; i++) path = path " " $i
@@ -53,7 +57,21 @@ jq -R -r -n -L "$(dirname "$0")" --rawfile owned "$WORK/owned.txt" --rawfile dir
   | inputs | split("\t") as [$path, $size]
   | ($path | usrmerge) as $p
   | select(($o[$p] | not) and ([$d[] | select(. as $x | $p | startswith($x))] | length == 0))
-  | "\($path)\t\($size)"' < "$WORK/candidates.tsv" > "$DIR/reports/unmanaged.txt"
+  | "\($path)\t\($size)"' < "$WORK/candidates.tsv" > "$WORK/unowned.tsv"
+
+# --- keep only content that is code (ELF, #! script, or a code extension) --------------
+mkdir -p "$WORK/x"
+cut -f1 "$WORK/unowned.tsv" | sed 's|^/||' > "$WORK/unowned.list"
+[[ -s "$WORK/unowned.list" ]] && tar -xf "$WORK/rootfs.tar" -C "$WORK/x" -T "$WORK/unowned.list" 2> /dev/null || true
+: > "$DIR/reports/unmanaged.txt"; : > "$WORK/not-code.tsv"
+while IFS=$'\t' read -r path size; do
+  magic="$(head -c 4 "$WORK/x$path" 2> /dev/null | od -An -c | tr -d ' \n' || true)"
+  if [[ "$path" =~ \.so(\.[0-9]+)*$|\.(jar|node|wasm|a|pyd)$ || "$magic" == '177ELF' || "$magic" == '#!'* ]]; then
+    printf '%s\t%s\n' "$path" "$size" >> "$DIR/reports/unmanaged.txt"
+  else
+    printf '%s\t%s\n' "$path" "$size" >> "$WORK/not-code.tsv"
+  fi
+done < "$WORK/unowned.tsv"
 
 total=$(wc -l < "$WORK/candidates.tsv")
 unowned=$(wc -l < "$DIR/reports/unmanaged.txt")
@@ -72,6 +90,10 @@ unowned=$(wc -l < "$DIR/reports/unmanaged.txt")
       "$DIR/reports/unmanaged.txt" | sort -t'|' -k3 -rn | head -25
     echo
     echo "_Full list: \`reports/unmanaged.txt\`._"
+  fi
+  if [[ -s "$WORK/not-code.tsv" ]]; then
+    echo
+    echo "Not counted (executable bit, but not code): $(cut -f1 "$WORK/not-code.tsv" | sed 's/.*/`&`/' | paste -sd, - | sed 's/,/, /g')."
   fi
   echo
 } > "$DIR/reports/unmanaged.md"

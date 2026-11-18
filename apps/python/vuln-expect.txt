@@ -1,6 +1,6 @@
 # Planted vulnerabilities the scanners must find: "<CVE> <note>".
 # The build fails if no scanner finds one on the analyzed image SBOM.
-CVE-2020-14343 pyyaml 5.3.1: yaml.load runs arbitrary code
+CVE-2020-14343 pyyaml 5.3.1: FullLoader can run arbitrary code (the app's own yaml.load with Loader=yaml.Loader is unsafe in every version)
 CVE-2023-30861 flask 2.0.3: session cookie disclosure
 CVE-2024-34069 werkzeug 2.0.3: debugger RCE
 CVE-2023-43804 urllib3 1.26.5: cookie leak on redirect

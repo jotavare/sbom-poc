@@ -66,7 +66,7 @@ echo "==> [$APP] scancode: done ($((SECONDS - start))s)"
 {
   echo "## ScanCode: declared vs detected licences ($APP)"
   echo
-  echo "Declared = package metadata (what SBOM generators report). Detected = ScanCode's findings in the package's own files (licence texts, headers). "(+)" = detected licences that the declaration doesn't mention (pointers like "see LICENSE", reported as \`LicenseRef-scancode-unknown-license-reference\`, are not flagged)."
+  echo "Declared = package metadata (what SBOM generators report). Detected = ScanCode's findings in the package's own files (licence texts, headers). (+) = detected licences that the declaration doesn't mention (pointers like "see LICENSE", reported as \`LicenseRef-scancode-unknown-license-reference\`, are not flagged)."
   echo
   echo "| Package | Declared | Detected in files | Copyright holders |"
   echo "|---|---|---|---|"

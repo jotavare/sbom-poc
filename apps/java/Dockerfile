@@ -6,10 +6,12 @@ COPY pom.xml .
 # Download every dependency once and keep a copy for SBOM tools (`maven-repo` stage).
 # The native SBOM is generated here too (cyclonedx-maven-plugin, see `sbom` stage),
 # which also puts the plugin into the exported repo so cdxgen can run it offline.
+# It writes CycloneDX 1.6 (plugin 2.9.3's maximum) and resolves pom.xml before
+# the sources are copied: it lists the resolved dependencies, not the built JAR.
 RUN --mount=type=cache,target=/root/.m2 mvn -B -q dependency:go-offline \
     && mvn -B -q org.cyclonedx:cyclonedx-maven-plugin:2.9.3:makeBom \
          -DoutputFormat=json -DoutputName=bom -DoutputDirectory=/sbom-native -DincludeTestScope=false \
-         -DschemaVersion=1.7 \
+         -DschemaVersion=1.6 \
     && cp -r /root/.m2/repository /m2-repository
 COPY src ./src
 

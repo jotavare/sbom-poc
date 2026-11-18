@@ -59,13 +59,17 @@ def needle: (. | ptype) as $t | (. | pname) as $n
           (if .kev then "In CISA KEV (actively exploited)." else empty end),
           (if .runs == true then "The package ran (runtime SBOM)." elif .runs == false then "The package did not run (runtime SBOM)." else empty end),
           (if .epss then "EPSS \(.epss * 1000 | round / 10)%." else empty end),
+          "Severity by scanner: \(.sevs // {} | to_entries | map("\(.key) \(.value)") | join(", ")).",
           "Found by: \(.scanners | join(", ")) on \(.pairs | map(split("@")[1]) | unique | join(", ")).",
           (if $acc then "Accepted until \($acc.expires): \($acc.reason)." else empty end)
         ] | join(" "))},
         locations: [{physicalLocation: {
           artifactLocation: {uri: $file.uri},
           region: {startLine: find_line($file.lines; $x | .pkg | needle)}}}],
-        properties: {package: .pkg, severity: .sev, scanners: .scanners, ran: .runs, kev: .kev, accepted: .accepted}
-      }))
+        properties: {package: .pkg, severity: .sev, scanners: .scanners, ran: .runs, kev: .kev, accepted: .accepted}}
+        # accepted risks are suppressed (SARIF 2.1.0 3.35), not shown as open
+        + (if $acc then {suppressions: [{kind: "external", status: "accepted",
+             justification: "Accepted until \($acc.expires): \($acc.reason)"}]} else {} end)
+      ))
   }]
 }

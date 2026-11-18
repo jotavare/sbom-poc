@@ -7,4 +7,4 @@ maven/org.springframework/*               2027-05-17 planted: Spring Boot 2.6.1 
 maven/org.springframework.boot/*          2027-05-17 planted: Spring Boot 2.6.1
 maven/org.apache.tomcat.embed/*           2027-05-17 planted: Tomcat pinned by Spring Boot 2.6.1
 maven/com.fasterxml.jackson.core/*        2027-05-17 planted: Jackson pinned by Spring Boot 2.6.1
-maven/ch.qos.logback/*                    2027-05-17 planted: Logback pinned by Spring Boot 2.6.1
+maven/org.apache.logging.log4j/*          2027-05-17 planted: Log4j 2.14.1 bridge jars (log4j-api, log4j-slf4j-impl, log4j-jul)

@@ -20,12 +20,15 @@ else
 fi
 (( ${#APPS[@]} > 0 )) || { echo "error: no SBOMs under $ROOT/ (run make sbom first)" >&2; exit 1; }
 
-# All library components, wherever they are nested (cdxgen nests some)
-LIBS='[.. | objects | select((.type? == "library" or .type? == "framework") and has("bom-ref"))]'
+# All package components, wherever they are nested in the component tree
+# (cdxgen nests some): libraries and frameworks, plus applications/platforms
+# that have a purl (Syft and cdxgen record the Node runtime that way). The
+# document's own root (metadata.component) is not part of the tree.
+LIBS='[(.components // []) | .. | objects | select(has("bom-ref") and ((.type? == "library" or .type? == "framework") or ((.type? == "application" or .type? == "platform") and .purl)))]'
 
 # label|jq expression over a CycloneDX document
 METRICS=(
-  "Libraries (total)|$LIBS | length"
+  "Packages (total)|$LIBS | length"
   "  dev/test (not compared)|$LIBS | map(select((.scope // \"required\") != \"required\")) | length"
   "  OS source pkgs (not compared)|$LIBS | map(select((.purl // \"\") | test(\"[?&]arch=source\"))) | length"
   "with licence|$LIBS | map(select((.licenses // []) | length > 0)) | length"

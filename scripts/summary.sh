@@ -39,9 +39,11 @@ for f in "$DIR"/*.cdx.json "$DIR"/*.spdx.json "$DIR"/*.spdx3.json; do
   gen="${b%%-*}"; [[ "$b" == runtime.* ]] && gen="strace + Syft"
   case "$b" in
     *.cdx.json)   fmt="CycloneDX $(jq -r .specVersion "$f")"
-                  n=$(jq '[.. | objects | select((.type? == "library" or .type? == "framework") and has("bom-ref"))] | length' "$f") ;;
+                  n=$(jq '[(.components // []) | .. | objects | select(has("bom-ref") and ((.type? == "library" or .type? == "framework") or ((.type? == "application" or .type? == "platform") and .purl)))] | length' "$f") ;;
+    # packages with a purl: cdxgen also writes its CBOM crypto assets as
+    # software_Package (no purl), and the image itself is a pkg:container package
     *.spdx3.json) fmt="SPDX 3.0.1"
-                  n=$(jq '[.["@graph"][]? | select(.type == "software_Package")] | length' "$f") ;;
+                  n=$(jq '[.["@graph"][]? | select(.type == "software_Package" and ((.software_packageUrl // "") | test("^pkg:") ) and ((.software_packageUrl // "") | startswith("pkg:container/") | not))] | length' "$f") ;;
     *.spdx.json)  fmt="$(jq -r .spdxVersion "$f")"; n=$(jq '.packages | length' "$f") ;;
   esac
   printf '%s\t| %s | `%s` | %s | %s | %s |\n' "$key$b" "$stage" "$b" "$gen" "$fmt" "$n"
@@ -49,6 +51,15 @@ done | sort | cut -f2-
 echo
 if [[ -s "$DIR/artifact.json" ]]; then
   echo "Image: \`$(jq -r '.image + "@" + .index_digest' "$DIR/artifact.json")\` (commit \`$(jq -r '.commit[0:12]' "$DIR/artifact.json")\`)"
+  echo
+  # Which image SBOMs are bound to this exact image (record one of its digests)?
+  bound=(); unbound=()
+  for f in "$DIR"/*-image.cdx.json; do
+    b="$(basename "$f")"
+    if jq -e --slurpfile a "$DIR/artifact.json" '[.. | strings] as $s | any($s[]; contains(($a[0].index_digest // "x")[7:]) or contains(($a[0].manifest_digest // "x")[7:]) or contains(($a[0].config_digest // "x")[7:]))' "$f" > /dev/null 2>&1; then
+      bound+=("\`$b\`"); else unbound+=("\`$b\`"); fi
+  done
+  echo "Image SBOMs that record one of this image's digests (index, manifest or config): ${bound[*]:-none}. Not bound to the digest: ${unbound[*]:-none} (they name the image by tag/commit or by the scanned tarball, so the link to the exact image rests on this report)."
   echo
 fi
 

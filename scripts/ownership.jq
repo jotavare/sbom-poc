@@ -16,13 +16,17 @@ def normpath: split("/") | reduce .[] as $p ([];
     if $p == "" or $p == "." then . elif $p == ".." then .[:-1] else . + [$p] end)
   | "/" + join("/") | usrmerge;
 
-# [{id, purl, name, version, type, files: [paths], dirs: [path prefixes]}]
+# [{id, purl, name, version, type, files: [paths], dirs: [path prefixes], vpaths}]
+# A JAR nested in a fat JAR (Syft virtualPath "/srv/app.jar:BOOT-INF/lib/x.jar")
+# does not own the outer file: opening the fat JAR doesn't mean x.jar was used.
+# Its vpaths are matched against the JVM's class-load log instead.
 def artifact_ownership:
   (.files // [] | map({key: .id, value: (.location.path | normpath)}) | from_entries) as $filePath
   | (.artifactRelationships // [] | map(select(.type == "contains"))
       | group_by(.parent) | map({key: .[0].parent, value: [.[].child]}) | from_entries) as $owns
   | [ .artifacts[] as $a
-      | ([$a.locations[]? | .path | normpath]) as $locs
+      | (($a.metadata.virtualPath // "") | contains(":")) as $nested
+      | (if $nested then [] else [$a.locations[]? | .path | normpath] end) as $locs
       | {id: $a.id, purl: $a.purl, name: $a.name, version: $a.version, type: $a.type,
          files: ( $locs
                 + [($owns[$a.id] // [])[] | $filePath[.] // empty]
@@ -31,5 +35,6 @@ def artifact_ownership:
                    else [] end) | unique),
          # npm packages own their whole directory (package.json is the only location
          # Syft records), e.g. node_modules/express/ or /opt/yarn-v1.22.22/
+         vpaths: [$a.metadata.virtualPath // empty],
          dirs: (if $a.type == "npm" then [$locs[] | select(endswith("/package.json")) | sub("package\\.json$"; "")]
                 else [] end) } ];

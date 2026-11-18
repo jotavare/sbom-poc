@@ -2,3 +2,5 @@
 pkg:maven/org.springframework.boot/spring-boot-starter-test
 pkg:maven/org.junit.jupiter/junit-jupiter-api
 pkg:maven/org.mockito/mockito-core
+# Logback must not ship: with it, log4j-core never logs (Log4Shell unreachable)
+pkg:maven/ch.qos.logback/logback-classic

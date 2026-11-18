@@ -27,9 +27,23 @@
   </properties>
 
   <dependencies>
+    <!-- Logging goes through Log4j 2 (log4j-core 2.14.1), not Spring Boot's
+         default Logback: with Logback, the Log4j API routes to SLF4J and
+         log4j-core ships but never formats a message, so Log4Shell would not be
+         reachable (found by the runtime SBOM's class-load log). -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-starter-logging</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-log4j2</artifactId>
     </dependency>
     <dependency>
       <groupId>org.apache.logging.log4j</groupId>
@@ -40,6 +54,12 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
       <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-starter-logging</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
   </dependencies>
 

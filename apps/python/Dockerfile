@@ -24,9 +24,14 @@ RUN pip install -r requirements-dev.txt
 COPY . ./
 RUN python -m pytest -q tests
 
+# --- venv stage: the app's venv without pip. pip only installs, it never runs in
+#     the app (runtime SBOM), yet it shipped and the vulnerability gate flagged it.
+FROM base AS venv
+RUN python -m pip uninstall -y pip
+
 # --- sbom stage: native OWASP generator (cyclonedx-py) on the installed environment.
 #     The tool lives in its own venv so it does not appear in the SBOM itself.
-FROM base AS sbom
+FROM venv AS sbom
 RUN python3 -m venv /opt/cdx && /opt/cdx/bin/pip install cyclonedx-bom==8.0.1 \
     && /opt/cdx/bin/cyclonedx-py environment /opt/venv/bin/python \
        --output-format JSON --spec-version 1.7 --output-file /native-build.cdx.json
@@ -34,11 +39,6 @@ RUN python3 -m venv /opt/cdx && /opt/cdx/bin/pip install cyclonedx-bom==8.0.1 \
 # --- sbom-export: copied out by scripts/generate-sbom.sh (docker create + docker cp)
 FROM scratch AS sbom-export
 COPY --from=sbom /native-build.cdx.json /
-
-# --- venv stage: the app's venv without pip. pip only installs, it never runs in
-#     the app (runtime SBOM), yet it shipped and the vulnerability gate flagged it.
-FROM base AS venv
-RUN python -m pip uninstall -y pip
 
 # --- runtime stage (default): distroless, no shell, no pip, non-root ---
 # Only the venv and the app are copied: the build image's apt, pip and shell

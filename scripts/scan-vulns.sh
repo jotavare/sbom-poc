@@ -129,12 +129,31 @@ if [[ "${VULN_SKIP_SCAN:-}" != 1 ]]; then
 fi
 
 # --- 3. normalise: one finding per (scanner, SBOM, package, vulnerability) ---
+# Debian source package -> the binary packages built from it, from the image
+# SBOMs' own source-name records (Syft: purl "upstream=", Trivy: SrcName
+# property; a binary without one is its own source). cdxgen lists source
+# packages as separate components; their findings are moved onto the binaries.
+img_sboms=(); for s in syft-image trivy-image cdxgen-image; do [[ -s "$DIR/$s.cdx.json" ]] && img_sboms+=("$DIR/$s.cdx.json"); done
+SRCMAP_JSON="$(jq -s -c -L "$HERE" 'include "graph";
+  [ .[] | .components[]? | select((.purl // "") | startswith("pkg:deb/"))
+    | select(.purl | test("[?&]arch=source") | not)
+    | { bin: (.purl | norm_purl),
+        ns: (.purl | capture("^pkg:deb/(?<n>[^/]+)/").n),
+        src: ( ((.purl | capture("[?&]upstream=(?<u>[^&#]+)").u) // null
+                 | if . then gsub("%40"; "@") | split("@")[0] else null end)
+               // ([.properties[]? | select(.name == "aquasecurity:trivy:SrcName") | .value][0])
+               // .name ) } ]
+  | group_by("\(.ns)/\(.src)") | map({key: "deb/\(.[0].ns)/\(.[0].src | ascii_downcase)", value: (map(.bin) | unique)}) | from_entries' "${img_sboms[@]}")"
+
 for f in "$OUT"/{grype,trivy,osv}-*.json; do
   [[ -s "$f" ]] || continue
   b="$(basename "$f" .json)"
   jq -c -L "$HERE" --arg scanner "${b%%-*}" --arg sbom "${b#*-}" 'include "vulns"; findings' "$f"
-done | jq -s -L "$HERE" 'include "vulns";
-  group_by([.scanner, .sbom, .pkg, .id]) | map(
+done | jq -s -L "$HERE" --argjson srcmap "$SRCMAP_JSON" 'include "vulns";
+  map(if .src then ((.pkg | sub("@[^@]*$"; "")) as $k | ($srcmap[$k] // null) as $bins
+        | if $bins then ($bins[] as $b | . + {pkg: $b, via_source: $k}) else . end)
+      else . end)
+  | group_by([.scanner, .sbom, .pkg, .id]) | map(
     .[0] + {ids: (map(.ids[]) | unique), sev: (max_by(.sev | sev_rank) | .sev),
             fixed: any(.fixed), fix: (map(.fix[]) | unique),
             epss: ([.[].epss | numbers] | max), kev: any(.kev == true)})' > "$OUT/findings.json"
@@ -154,8 +173,19 @@ EXPECT_JSON="$( { grep -vE '^\s*(#|$)' "$APPDIR/vuln-expect.txt" 2> /dev/null ||
 # union of all scanners on all image SBOMs, per (package, vulnerability)
 jq -L "$HERE" --argjson runtime "$RUNTIME_JSON" --argjson accept "$ACCEPT_JSON" 'include "vulns";
   [.[] | select(.sbom | endswith("-image"))] | group_by([.pkg, .id]) | map(
-    .[0] + {scanners: (map(.scanner) | unique), pairs: (map("\(.scanner)@\(.sbom)") | unique), ids: (map(.ids[]) | unique),
-            sev: (max_by(.sev | sev_rank) | .sev), fixed: any(.fixed), fix: (map(.fix[]) | unique),
+    # Severity: Grype and Trivy use the rating of the distribution or advisory
+    # itself (Debian "negligible", GHSA "moderate"); OSV-Scanner only gives a
+    # CVSS score (from NVD for Debian CVEs). The vendor rating wins; the highest of
+    # those if they differ; the OSV CVSS rating only when no other is known.
+    # Fix versions likewise: Grype/Trivy first; from OSV, its highest fixed version.
+    ([.[] | select(.scanner != "osv" and .sev != "unknown")]) as $vendor
+    | ([.[] | select(.scanner != "osv") | .fix[]] | unique) as $vfix
+    | .[0] + {scanners: (map(.scanner) | unique), pairs: (map("\(.scanner)@\(.sbom)") | unique), ids: (map(.ids[]) | unique),
+            sevs: (group_by(.scanner) | map({key: .[0].scanner, value: (max_by(.sev | sev_rank) | .sev)}) | from_entries),
+            sev: (if ($vendor | length) > 0 then ($vendor | max_by(.sev | sev_rank) | .sev) else (max_by(.sev | sev_rank) | .sev) end),
+            fixed: any(.fixed),
+            fix: (if ($vfix | length) > 0 then ($vfix | sort_by(vkey))
+                  else ([.[].fix[]] | unique | sort_by(vkey) | if length > 0 then [last] else [] end) end),
             epss: ([.[].epss | numbers] | max), kev: any(.kev == true)})
   | map(. as $f | (.pkg | split("@")[0]) as $name
       | . + {runs: (if $runtime == null then null else ($runtime | index($f.pkg)) != null end),
@@ -203,7 +233,11 @@ for s in $SBOMS; do
   echo "$row"
 done
 echo
-echo "Why the same image gives such different numbers: Debian publishes its advisories per **source** package (\`krb5\`), while an SBOM lists binary packages (\`libgssapi-krb5-2\`). The SBOM must carry the source name, and each generator does it its own way: Trivy in a property (\`aquasecurity:trivy:SrcName\`), Syft as a purl qualifier (\`upstream=krb5\`), cdxgen not at all. A scanner reading another generator's SBOM misses most OS vulnerabilities. OSV-Scanner reads Debian packages only with \`distro=debian-13\` (cdxgen), not \`debian-13.7\` (Syft, Trivy). Language packages match everywhere: their purl is all a scanner needs."
+echo "Why the same image gives different numbers: Debian publishes its advisories per **source** package (\`krb5\`), while an SBOM lists binary packages (\`libgssapi-krb5-2\`). Each generator records the source differently: Trivy in a property (\`aquasecurity:trivy:SrcName\`), Syft as a purl qualifier (\`upstream=krb5\`), cdxgen as separate \`arch=source\` components. A scanner reading another generator's SBOM misses most OS vulnerabilities. OSV-Scanner reads Debian packages only with \`distro=debian-13\` (cdxgen), not \`debian-13.7\` (Syft, Trivy). Findings on cdxgen's source components are counted on the binary packages built from them, so a flaw is not counted twice. Language packages match everywhere: their purl is all a scanner needs."
+if jq -e '[.[] | select(.scanner == "osv" and (.pkg | startswith("golang/stdlib@")))] | length > 20' "$OUT/findings.json" > /dev/null; then
+  echo
+  echo "**OSV-Scanner and the Go standard library:** OSV-Scanner reads the CycloneDX component's version, not the purl's. Syft writes \`go1.27.4\` there (purl: \`1.27.4\`), which OSV-Scanner can't compare, so it reports every Go stdlib advisory ever published: false positives. On SBOMs that write the version without \`go\`, it finds none."
+fi
 echo
 
 echo "### Do the scanners agree? (all image SBOMs)"
@@ -255,7 +289,7 @@ echo
 jq -r 'map(select(.sev == "critical" or .sev == "high")) as $ch
   | "**\($ch | length)** critical/high findings; **\($ch | map(select(.fixed)) | length)** have a fix; **\($ch | map(select(.runs == true)) | length)** are in packages that ran (runtime SBOM); **\($ch | map(select(.kev)) | length)** are in CISA KEV (actively exploited)."' "$OUT/gate.json"
 echo
-echo "Order: known exploited (KEV), then the package ran, then severity, then EPSS (probability of exploitation in the next 30 days)."
+echo "Order: known exploited (KEV), then the package ran, then severity, then EPSS (probability of exploitation in the next 30 days). Severity is the rating Grype and Trivy report (the distribution's or the advisory's own, e.g. Debian \"negligible\"); OSV-Scanner's CVSS-based rating is used only when they have none. **Ran** comes from the runtime SBOM: the package's files were used while the probes ran. For Go and Rust that means the module is compiled into the binary, not that the vulnerable function was called (that needs a reachability tool, e.g. govulncheck)."
 echo
 prio="$(jq -r -L "$HERE" 'include "vulns";
   map(select(.sev == "critical" or .sev == "high"))
@@ -292,10 +326,10 @@ else
 fi
 echo
 if [[ "$ACCEPT_JSON" != "[]" ]]; then
-  echo "| Accepted | Expires | Findings it covers | Reason |"
+  echo "| Accepted | Expires | Critical/high with a fix it covers | Reason |"
   echo "|---|---|---|---|"
   jq -r --slurpfile g "$OUT/gate.json" '.[] | . as $a
-    | "| `\(.key)` | \(.expires)\(if .valid then "" else " (expired)" end) | \([$g[0][] | select(.accepted == $a.key)] | length) | \(.reason) |"' <<< "$ACCEPT_JSON"
+    | "| `\(.key)` | \(.expires)\(if .valid then "" else " (expired)" end) | \([$g[0][] | select(.accepted == $a.key and (.sev == "critical" or .sev == "high") and .fixed)] | length) | \(.reason) |"' <<< "$ACCEPT_JSON"
   echo
 fi
 if (( MISSED > 0 )); then echo "**Fail: $MISSED planted CVE(s) not found by any scanner** on any image SBOM."; echo; fi

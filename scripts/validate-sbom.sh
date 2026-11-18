@@ -132,6 +132,7 @@ for rel in "${FILES[@]}"; do
   fi
   if (( ok )); then
     result="valid"
+    [[ "$fmt" == *"schema only"* ]] && result="schema valid (SHACL not run)"
   else
     # SHACL reports: use the "Message:" lines; otherwise the most repeated line
     # (`|| true`: head closes the pipe early, which pipefail would turn into an error)
@@ -140,7 +141,7 @@ for rel in "${FILES[@]}"; do
               | head -1 | sed -E 's/^ *([0-9]+) (.*)/\2 (x\1)/' | cut -c1-140 | tr '|' '/' || true)
     else
       first=$(grep -vE "^ERROR:|^Validation failed|^Violation of|Severity:|Source Shape|Focus Node|Value Node|Result Path|^\s*$" "$log" \
-              | sed -E 's/\[<.*//' | sort | uniq -c | sort -rn \
+              | sed -E 's/\[<ChecksumAlgorithm\.([A-Z0-9_]+): [0-9]+>\]/\1/g; s/\[<.*//' | sort | uniq -c | sort -rn \
               | head -1 | sed -E 's/^ *([0-9]+) (.*)/\2 (x\1)/' | cut -c1-140 | tr '|' '/' || true)
     fi
     [[ -n "$first" ]] || first=$(head -1 "$log" | cut -c1-140 | tr '|' '/' || true)

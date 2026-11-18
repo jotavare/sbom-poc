@@ -24,8 +24,10 @@ rm -rf "$WORK" && mkdir -p "$WORK"
 
 shopt -s nullglob
 for f in "$DIR"/*.cdx.json; do
-  jq '([.components[]? | select(.type == "file") | .["bom-ref"]]) as $files
-      | .components = [.components[]? | select(.type != "file")]
+  # files and cryptographic assets (cdxgen's CBOM entries) are not packages:
+  # left in, they would be scored as components missing names, versions, licences
+  jq '([.components[]? | select(.type == "file" or .type == "cryptographic-asset") | .["bom-ref"]]) as $files
+      | .components = [.components[]? | select(.type != "file" and .type != "cryptographic-asset")]
       | .dependencies = [(.dependencies // [])[] | select(.ref as $r | $files | index($r) | not)
                          | .dependsOn = [(.dependsOn // [])[] | select(. as $d | $files | index($d) | not)]]' \
     "$f" > "$WORK/$(basename "$f")"

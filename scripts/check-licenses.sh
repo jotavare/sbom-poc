@@ -7,10 +7,16 @@
 # which are GPL by nature and need a separate policy.
 #
 # Before grant runs, each component's licences are normalised (normalise_licences):
-#   - several licence entries on one component mean a CHOICE (e.g. EPL-2.0 and
-#     GPL-2.0-with-classpath-exception), so they become one SPDX expression
-#     joined with OR; grant evaluates expressions correctly (OR: any allowed one
+#   - several licence entries on one component are joined with OR. CycloneDX
+#     doesn't say whether a list of licences is a choice (dual licensing, e.g.
+#     jakarta.annotation-api: EPL-2.0 or GPL-2.0 WITH Classpath-exception-2.0)
+#     or a conjunction (files under different licences, e.g. yaml.v2: Apache-2.0
+#     and MIT). OR follows the dual-licence case; with AND, every dual-licensed
+#     package would wrongly fail. A generator that knows uses an expression,
+#     which is kept as is; grant evaluates expressions (OR: any allowed one
 #     passes, AND: all must be allowed)
+#   - non-standard exception names are mapped to SPDX ("WITH classpath-exception",
+#     the deprecated "GPL-2.0-with-classpath-exception")
 #   - components without a version are dropped (not packages)
 #   - unambiguous Python classifiers are mapped to SPDX IDs ("MIT License");
 #     ambiguous ones ("BSD License": which BSD?) stay unknown
@@ -46,6 +52,8 @@ NORMALISE='
     "License :: OSI Approved :: The Unlicense (Unlicense)": "Unlicense"
   };
   def spdx_like: test("^[A-Za-z0-9.+-]+( WITH [A-Za-z0-9.+-]+)?$");
+  def spdx_fix: gsub("WITH classpath-exception(-2\\.0)?"; "WITH Classpath-exception-2.0")
+    | gsub("GPL-2\\.0-with-classpath-exception"; "GPL-2.0-only WITH Classpath-exception-2.0");
   def normalise_licences:
     [ (.licenses // [])[] |
       if .expression then {k: "spdx", v: .expression}
@@ -56,7 +64,7 @@ NORMALISE='
           elif (.license.name | spdx_like) then {k: "spdx", v: .license.name}
           else {k: "text", v: .license.name} end
       else empty end ] as $l
-    | ([$l[] | select(.k == "spdx") | .v] | unique) as $spdx
+    | ([$l[] | select(.k == "spdx") | .v | spdx_fix] | unique) as $spdx
     | if ($spdx | length) > 0 then
         .licenses = [{expression: ($spdx | map(if test(" ") then "(" + . + ")" else . end) | join(" OR "))}]
       else

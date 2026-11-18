@@ -3,7 +3,10 @@
 #
 # Allowed: permissive licences, plus MPL-2.0 (weak, file-level copyleft;
 # e.g. certifi) which is commonly accepted for unmodified dependencies.
-# Not allowed (fails the check): GPL/LGPL/AGPL and anything unknown.
+# Not allowed (a violation): GPL/LGPL/AGPL and any other licence not listed.
+# Unknown or missing licences are reported separately as incomplete data
+# (scripts/check-licenses.sh): usually the SBOM lacks the licence (source and
+# image SBOMs often do; the native build SBOM has it), not the package.
 allow:
   - MIT
   - MIT-*
@@ -24,8 +27,8 @@ allow:
   - Unicode-3.0
   - BlueOak-1.0.0
 
-# Every package must declare a licence; "no licence found" is a violation,
-# because it means compliance can't be shown.
+# Grant itself fails a package without a licence; the report shows those as
+# "incomplete data", since compliance can't be shown from that SBOM.
 require-license: true
 require-known-license: false
 ignore-packages: []
