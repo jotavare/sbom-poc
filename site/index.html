@@ -172,7 +172,7 @@ footer a { color: var(--accent); }
   <section aria-labelledby="job">
     <div class="section-head">
       <h2 id="job">One CI job, step by step</h2>
-      <p>The <code>sbom.yml</code> workflow runs this job once per app (python, node, go, java, rust) in parallel, about 3–4 minutes in total (vulnerability databases and validators are cached).</p>
+      <p>The <code>sbom.yml</code> workflow runs this job once per app (python, node, go, java, rust) in parallel.</p>
       <div class="legend"><span><span class="chip gate">fails the build</span> a failed check stops the job</span><span><span class="chip">report</span> results only</span></div>
     </div>
     <ol class="track">
@@ -189,7 +189,7 @@ footer a { color: var(--accent); }
       </div></li>
       <li class="step"><div class="rail"><span class="dot">3</span></div><div class="card">
         <div class="title"><h3>Generate SBOMs</h3><span class="script">generate-sbom.sh</span></div>
-        <p>Source scans (stage 1), the native build SBOM (stage 2) and image scans (stage 3). No tool gets the Docker socket: the image is scanned from a saved tarball, every tool call has a 10-minute timeout and its own log.</p>
+        <p>Source scans (stage 1), the native build SBOM (stage 2) and image scans (stage 3). No tool gets the Docker socket: the image is scanned from a saved tarball, every tool call has a timeout and its own log.</p>
         <div class="meta"><span class="chip">Syft</span><span class="chip">Trivy</span><span class="chip">cdxgen</span><span class="chip">cyclonedx-py · npm · gomod · maven · cargo</span></div>
         <div class="out">→ CycloneDX 1.7, SPDX 2.3, SPDX 3.0.1 files</div>
       </div></li>
@@ -246,7 +246,7 @@ footer a { color: var(--accent); }
       <div class="box"><h3>Per app</h3><p>Artifact <code>sbom-&lt;app&gt;</code>: all SBOMs, views, reports and tool logs, kept 30 days.</p></div>
       <div class="box"><h3>Combined</h3><p>The report job merges every app's summary into <code>SBOM-REPORT.md</code> (artifact <code>sbom-report</code>), stamped with commit, tool versions and image digests.</p></div>
       <div class="box"><h3>Code scanning</h3><p>Each app's <code>vulns.sarif</code> is uploaded to the repository's Security tab: one alert per package and CVE, pointing at the file that declares the package. Accepted findings are marked as suppressed. GitHub only displays it; the findings and the gate are the pipeline's own.</p></div>
-      <div class="box"><h3>By hand</h3><p>The <code>scancode.yml</code> workflow compares declared licences with those found in the files (python, node, java). Slow, so run when needed.</p></div>
+      <div class="box"><h3>By hand</h3><p>The <code>scancode.yml</code> workflow compares declared licences with those found in the files (python, node, java). It runs only when started by hand.</p></div>
     </div>
   </section>
 
